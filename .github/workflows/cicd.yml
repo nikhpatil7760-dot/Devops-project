@@ -1,5 +1,5 @@
 ```yaml
-name: DevOps CI
+name: DevOps CI/CD
 
 on:
   push:
@@ -10,11 +10,16 @@ on:
       - main
 
 jobs:
+
+  # =========================
+  # CI
+  # =========================
   validate:
-    name: Validate & Security Scan
+    name: CI - Validate & Security Scan
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -44,4 +49,73 @@ jobs:
 
       - name: Trivy Configuration Scan
         run: trivy config .
+
+
+  # =========================
+  # CD
+  # =========================
+  deploy:
+    name: CD - Deploy to Kubernetes
+    needs: validate
+
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create Kind Cluster
+        uses: helm/kind-action@v1
+        with:
+          cluster_name: devops-lab
+
+      - name: Verify Kubernetes Cluster
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+      - name: Deploy Namespace
+        run: |
+          kubectl apply -f kubernetes/namespace.yaml
+
+      - name: Deploy Podinfo
+        run: |
+          kubectl apply -f kubernetes/deployment.yaml
+          kubectl apply -f kubernetes/service.yaml
+
+      - name: Wait for Deployment
+        run: |
+          kubectl rollout status deployment/podinfo \
+            -n podinfo \
+            --timeout=120s
+
+      - name: Deployment Health Check
+        run: |
+          kubectl get pods -n podinfo
+          kubectl get deployment -n podinfo
+          kubectl get service -n podinfo
+
+      - name: Verify Ready Replicas
+        shell: bash
+        run: |
+          READY=$(kubectl get deployment podinfo \
+            -n podinfo \
+            -o jsonpath='{.status.readyReplicas}')
+
+          DESIRED=$(kubectl get deployment podinfo \
+            -n podinfo \
+            -o jsonpath='{.spec.replicas}')
+
+          echo "Ready replicas: $READY"
+          echo "Desired replicas: $DESIRED"
+
+          if [ "$READY" != "$DESIRED" ]; then
+            echo "Deployment health check FAILED"
+            exit 1
+          fi
+
+          echo "Deployment health check PASSED"
 ```
