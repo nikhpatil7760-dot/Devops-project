@@ -64,7 +64,7 @@ jobs:
         id: validate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: powershell
-        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/deployment-check.ps1 -Namespace flask-app -TimeoutSeconds 120
+        run: python scripts/deployment_check.py --namespace flask-app --timeout-seconds 120
       - name: Run AI RCA for CD failure
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true

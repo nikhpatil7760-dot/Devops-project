@@ -104,7 +104,7 @@ terraform -chdir=terraform plan
 terraform -chdir=terraform apply
 ```
 
-Review the plan before applying if you change the configured Kind context. `scripts/cd-local.ps1 setup` initializes Terraform and applies only the namespace resource.
+Review the plan before applying if you change the configured Kind context. `scripts/cd_local.py setup` initializes Terraform and applies only the namespace resource.
 
 ## 10. LocalStack ECR
 
@@ -118,8 +118,8 @@ $env:LOCALSTACK_AUTH_TOKEN = [System.Net.NetworkCredential]::new("", $secureToke
 Then start the local platform and deploy:
 
 ```powershell
-.\scripts\cd-local.ps1 setup
-.\scripts\cd-local.ps1 deploy
+python scripts/cd_local.py setup
+python scripts/cd_local.py deploy
 ```
 
 Setup starts Kind and LocalStack, creates the `devops-platform` ECR repository, and applies the Terraform-owned namespace. Deploy builds a local tag, obtains a LocalStack ECR login token using the AWS CLI container with LocalStack-only dummy credentials, pushes to `localhost.localstack.cloud:4510`, creates an ephemeral Kubernetes pull secret, and deploys the same registry URI through the Kind network alias.
@@ -141,26 +141,26 @@ The current environment has no LocalStack Auth Token, so LocalStack startup, ECR
 There is no GitHub-hosted CD or Azure OIDC workflow. Local CD runs on the developer's machine:
 
 ```powershell
-.\scripts\cd-local.ps1 deploy
+python scripts/cd_local.py deploy
 ```
 
 It builds and pushes to LocalStack ECR, applies Flask and observability resources, waits for rollouts, then checks `http://127.0.0.1:8081/health`. Use `-ImageTag <tag>` to supply a specific local tag. Local CD is not triggered automatically by GitHub Actions.
 
 ## 13. Deployment Failure and Rollback
 
-After a rollout or health failure, `scripts/deployment-check.ps1` collects pod state, deployment description, namespace events, and logs into an ignored `.local/incidents/` evidence snapshot. It performs deterministic `kubectl rollout undo`, waits for the previous revision, and rechecks health before asking Ollama to analyze the saved failure evidence. A slow or unavailable model cannot block recovery; malformed or unavailable model output falls back to a five-field summary derived from the captured Kubernetes evidence. The failed release still exits nonzero to keep the failure visible. AI output is never executed.
+After a rollout or health failure, `scripts/deployment_check.py` collects pod state, deployment description, namespace events, and logs into an ignored `.local/incidents/` evidence snapshot. It performs deterministic `kubectl rollout undo`, waits for the previous revision, and rechecks health before asking Ollama to analyze the saved failure evidence. A slow or unavailable model cannot block recovery; malformed or unavailable model output falls back to a five-field summary derived from the captured Kubernetes evidence. The failed release still exits nonzero to keep the failure visible. AI output is never executed.
 
 With a healthy release deployed, run the real failure demonstration:
 
 ```powershell
-.\scripts\cd-local.ps1 rollback-demo
+python scripts/cd_local.py rollback-demo
 ```
 
 It deploys a deliberately nonexistent LocalStack ECR tag, expects image-pull/rollout failure, collects evidence, attempts AI analysis, rolls back, and verifies the prior image and health endpoint. This requires LocalStack and the initial successful deployment.
 
-## 14. Python and PowerShell Automation
+## 14. Python Automation
 
-`scripts/cd-local.ps1` supports `setup`, `deploy`, `check`, `logs`, `metrics`, `traces`, `rca`, `rollback-demo`, and `destroy`. `scripts/deployment-check.ps1` checks rollout and external health, gathers diagnostics, and rolls back on failure. `scripts/log-analysis.py` filters current Flask logs for common error patterns. `scripts/ai-rca.py` gathers actual Kubernetes evidence and requests read-only recommendations from Ollama. `scripts/generate-trace.py` emits an OTLP span. Python helpers return nonzero exit codes on operational failures.
+`scripts/cd_local.py` supports `setup`, `deploy`, `check`, `logs`, `metrics`, `traces`, `rca`, `rollback-demo`, and `destroy`. `scripts/deployment_check.py` checks rollout and external health, gathers diagnostics, and rolls back on failure. `scripts/log-analysis.py` filters current Flask logs for common error patterns. `scripts/ai-rca.py` gathers actual Kubernetes evidence and requests read-only recommendations from Ollama. `scripts/generate-trace.py` emits an OTLP span. Python helpers return nonzero exit codes on operational failures.
 
 ## 15. Logs
 
@@ -219,7 +219,7 @@ Use `--evidence-only` to collect evidence without contacting the model. Use `--e
 
 ## 19. Platform Engineering Workflow
 
-Common operations are grouped in one PowerShell entry point instead of requiring developers to remember separate sequences. The workstation owns Kind, LocalStack, Terraform namespace setup, local image promotion, health verification, observability access, incident evidence, and recovery. Required local tools are Python 3.12, Docker Desktop/Compose, Kind, kubectl, Terraform, PowerShell, and Ollama for model-based RCA. LocalStack ECR currently also requires the user's own Auth Token.
+Common operations are grouped in one Python entry point instead of requiring developers to remember separate sequences. The workstation owns Kind, LocalStack, Terraform namespace setup, local image promotion, health verification, observability access, incident evidence, and recovery. Required local tools are Python 3.12, Docker Desktop/Compose, Kind, kubectl, Terraform, and Ollama for model-based RCA. LocalStack ECR currently also requires the user's own Auth Token.
 
 ## 20. Security and Manual vs Automated Process
 
@@ -245,16 +245,16 @@ This removes repeatable manual steps but does not claim that a GitHub-hosted run
 3. **Kind and Terraform (2 min):** show `kind get clusters`, `kubectl config current-context`, and `terraform -chdir=terraform plan`.
 4. **CI (1 min):** in GitHub open **Actions → Flask CI → latest run** and show pytest, Docker build, and Trivy results.
 5. **LocalStack ECR (1 min):** run `docker run --rm --network kind --env AWS_ACCESS_KEY_ID=test --env AWS_SECRET_ACCESS_KEY=test --env AWS_DEFAULT_REGION=us-east-1 public.ecr.aws/aws-cli/aws-cli:2.37.9 ecr describe-images --repository-name devops-platform --endpoint-url http://localstack:4566 --region us-east-1`.
-6. **Local CD and Kubernetes (2 min):** run `.\scripts\cd-local.ps1 check` and `kubectl get deployments,services -n flask-app`; open `http://localhost:8081/`.
+6. **Local CD and Kubernetes (2 min):** run `python scripts/cd_local.py check` and `kubectl get deployments,services -n flask-app`; open `http://localhost:8081/`.
 7. **Health and logs (1 min):** run `Invoke-RestMethod http://localhost:8081/health` and `python scripts/log-analysis.py`.
 8. **Prometheus (1 min):** run `kubectl port-forward -n observability svc/prometheus 9090:9090`; open `http://localhost:9090/graph` and query `flask_http_requests_total`.
 9. **Traces (1 min):** run the OTLP port-forward and `python scripts/generate-trace.py`; show the span in `kubectl logs -n observability deployment/otel-collector --since=5m`.
-10. **Failure and RCA (2–3 min):** ensure Ollama is running, then run `.\scripts\cd-local.ps1 rollback-demo`; show image-pull evidence, the RCA recommendation, rollout undo, and a healthy response.
+10. **Failure and RCA (2–3 min):** ensure Ollama is running, then run `python scripts/cd_local.py rollback-demo`; show image-pull evidence, the RCA recommendation, rollout undo, and a healthy response.
 
 ## 23. Cleanup
 
 ```powershell
-.\scripts\cd-local.ps1 destroy
+python scripts/cd_local.py destroy
 ```
 
 This destroys Terraform's `observability` namespace, stops the LocalStack Compose service, and deletes only the dedicated `flask-platform` Kind cluster. It does not delete the pre-existing `devops-lab` cluster or the user's Azurite container.
