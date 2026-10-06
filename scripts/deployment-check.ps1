@@ -1,0 +1,1 @@
+﻿Write-Host 'Checking Podinfo deployment...'; kubectl rollout status deployment/podinfo -n podinfo; if ($LASTEXITCODE -eq 0) { Write-Host 'Deployment is healthy.' } else { Write-Host 'Deployment check failed.'; exit 1 }; kubectl get pods -n podinfo
