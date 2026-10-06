@@ -22,8 +22,14 @@ if ($LASTEXITCODE -ne 0) {
     throw "Could not apply the intentional failure image."
 }
 
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "deployment-check.ps1") -TimeoutSeconds $TimeoutSeconds
-$checkExitCode = $LASTEXITCODE
+$previousPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = "Continue"
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "deployment-check.ps1") -TimeoutSeconds $TimeoutSeconds
+    $checkExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousPreference
+}
 if ($checkExitCode -eq 0) {
     throw "The invalid image unexpectedly passed deployment validation."
 }

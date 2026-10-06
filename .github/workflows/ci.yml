@@ -11,8 +11,8 @@ permissions:
 
 jobs:
   test-build:
-    name: Test and build
-    runs-on: ubuntu-latest
+    name: Test, build, and deploy
+    runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -30,3 +30,44 @@ jobs:
 
       - name: Build Docker image
         run: docker build --pull --tag "devops-platform:${{ github.sha }}" .
+      - name: Select existing Kind cluster
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: powershell
+        run: kubectl config use-context kind-flask-platform
+
+      - name: Load image into existing Kind cluster
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: powershell
+        run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
+
+      - name: Apply Flask Kubernetes resources
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: powershell
+        run: |
+          kubectl apply -f kubernetes/namespace.yaml
+          kubectl apply -f kubernetes/service.yaml
+          kubectl apply -f kubernetes/deployment.yaml
+          kubectl set image deployment/flask-app flask-app="devops-platform:${{ github.sha }}" --namespace flask-app
+          kubectl set env deployment/flask-app APP_VERSION="${{ github.sha }}" --namespace flask-app
+
+      - name: Validate rollout and health (RCA and rollback on failure)
+        id: validate
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: powershell
+        run: powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/deployment-check.ps1 -Namespace flask-app -TimeoutSeconds 120
+      - name: Run AI RCA for CD failure
+        if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          $incidentDirectory = Join-Path $env:GITHUB_WORKSPACE ".local/incidents"
+          New-Item -ItemType Directory -Force -Path $incidentDirectory | Out-Null
+          $evidence = Get-ChildItem -Path $incidentDirectory -Filter "incident-*.txt" -File -ErrorAction SilentlyContinue |
+            Sort-Object LastWriteTime -Descending |
+            Select-Object -First 1
+          if ($null -eq $evidence) {
+            $evidencePath = Join-Path $incidentDirectory "github-actions-incident-$env:GITHUB_RUN_ID.txt"
+            python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output $evidencePath
+            $evidence = Get-Item -LiteralPath $evidencePath
+          }
+          python scripts/ai-rca.py --namespace flask-app --evidence-file $evidence.FullName --timeout-seconds 30
