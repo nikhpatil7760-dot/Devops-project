@@ -1,0 +1,9 @@
+.git
+.env
+.local/
+.pytest_cache
+__pycache__
+*.py[cod]
+app/test_app.py
+terraform/.terraform/
+terraform/*.tfstate*

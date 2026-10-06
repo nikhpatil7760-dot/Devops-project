@@ -1,0 +1,27 @@
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: devops-localstack
+    ports:
+      - "127.0.0.1:4566:4566"
+      - "127.0.0.1:4510:4510"
+    environment:
+      SERVICES: ecr
+      AWS_DEFAULT_REGION: us-east-1
+      ECR_ENDPOINT_STRATEGY: off
+      LOCALSTACK_AUTH_TOKEN: ${LOCALSTACK_AUTH_TOKEN:-}
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:4566/_localstack/health | grep -Eq '\"ecr\"[[:space:]]*:[[:space:]]*\"(available|running)\"'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    networks:
+      default:
+        aliases:
+          - localstack
+          - localhost.localstack.cloud
+
+networks:
+  default:
+    name: kind
+    external: true

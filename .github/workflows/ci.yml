@@ -1,53 +1,38 @@
-name: DevOps CI
+name: Flask CI
 
 on:
   push:
   pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
 
 jobs:
-  validate-deploy:
+  test-build-scan-publish:
+    name: Test, build, scan, and publish
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-
-      - name: Terraform Format Check
-        working-directory: terraform
-        run: terraform fmt -check
-
-      - name: Terraform Init
-        working-directory: terraform
-        run: terraform init -backend=false
-
-      - name: Terraform Validate
-        working-directory: terraform
-        run: terraform validate
-
-      - name: Setup Kind
-        uses: helm/kind-action@v1
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          cluster_name: ci-cluster
+          python-version: "3.12"
 
-      - name: Deploy Application
-        run: |
-          kubectl apply -f kubernetes/namespace.yaml
-          kubectl apply -f kubernetes/deployment.yaml
-          kubectl apply -f kubernetes/service.yaml
+      - name: Install dependencies
+        run: python -m pip install -r app/requirements-dev.txt
 
-      - name: Health Check
-        run: |
-          if ! kubectl rollout status deployment/podinfo -n podinfo --timeout=120s; then
-            echo "Deployment failed. Starting rollback..."
-            kubectl rollout undo deployment/podinfo -n podinfo
-            kubectl rollout status deployment/podinfo -n podinfo --timeout=120s
-            exit 1
-          fi
+      - name: Run tests
+        run: python -m pytest app/test_app.py
 
-      - name: Verify Deployment
-        run: |
-          kubectl get pods -n podinfo
-          kubectl get service -n podinfo
+      - name: Build Docker image
+        run: docker build --pull --tag "devops-platform:${{ github.sha }}" .
+
+      - name: Set up Trivy
+        uses: aquasecurity/setup-trivy@v0.2.3
+
+      - name: Scan Docker image
+        run: trivy image --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "devops-platform:${{ github.sha }}"

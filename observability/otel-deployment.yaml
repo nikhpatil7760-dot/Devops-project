@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: otel-collector
-          image: otel/opentelemetry-collector:latest
+          image: otel/opentelemetry-collector:0.123.0
           args:
             - "--config=/etc/otelcol/config.yaml"
           ports:
@@ -28,33 +28,6 @@ spec:
         - name: config
           configMap:
             name: otel-collector-config
----
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: otel-collector-config
-  namespace: observability
-data:
-  config.yaml: |
-    receivers:
-      otlp:
-        protocols:
-          grpc:
-            endpoint: 0.0.0.0:4317
-          http:
-            endpoint: 0.0.0.0:4318
-
-    exporters:
-      debug:
-
-    service:
-      pipelines:
-        traces:
-          receivers: [otlp]
-          exporters: [debug]
-        metrics:
-          receivers: [otlp]
-          exporters: [debug]
 ---
 apiVersion: v1
 kind: Service

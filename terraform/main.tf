@@ -1,4 +1,8 @@
 terraform {
+  backend "local" {
+    path = "../.local/terraform.tfstate"
+  }
+
   required_providers {
     kubernetes = {
       source  = "hashicorp/kubernetes"
@@ -8,83 +12,22 @@ terraform {
 }
 
 provider "kubernetes" {
-  config_path = "~/.kube/config"
+  config_path    = "~/.kube/config"
+  config_context = var.kube_context
 }
 
-resource "kubernetes_namespace" "podinfo" {
-  metadata {
-    name = "podinfo"
-  }
+variable "kube_context" {
+  description = "Kind context used for local Terraform-managed platform namespaces."
+  type        = string
+  default     = "kind-flask-platform"
 }
 
-resource "kubernetes_deployment" "podinfo" {
+resource "kubernetes_namespace_v1" "observability" {
   metadata {
-    name      = "podinfo"
-    namespace = kubernetes_namespace.podinfo.metadata[0].name
-  }
-
-  spec {
-    replicas = 2
-
-    selector {
-      match_labels = {
-        app = "podinfo"
-      }
-    }
-
-    template {
-      metadata {
-        labels = {
-          app = "podinfo"
-        }
-      }
-
-      spec {
-        container {
-          name  = "podinfo"
-          image = "ghcr.io/stefanprodan/podinfo:6.15.0"
-
-          port {
-            container_port = 9898
-          }
-
-          readiness_probe {
-            http_get {
-              path = "/readyz"
-              port = 9898
-            }
-            initial_delay_seconds = 5
-            period_seconds        = 5
-          }
-
-          liveness_probe {
-            http_get {
-              path = "/healthz"
-              port = 9898
-            }
-            initial_delay_seconds = 10
-            period_seconds        = 10
-          }
-        }
-      }
-    }
-  }
-}
-
-resource "kubernetes_service" "podinfo" {
-  metadata {
-    name      = "podinfo"
-    namespace = kubernetes_namespace.podinfo.metadata[0].name
-  }
-
-  spec {
-    selector = {
-      app = "podinfo"
-    }
-
-    port {
-      port        = 9898
-      target_port = 9898
+    name = "observability"
+    labels = {
+      "app.kubernetes.io/part-of"    = "devops-platform"
+      "app.kubernetes.io/managed-by" = "terraform"
     }
   }
 }

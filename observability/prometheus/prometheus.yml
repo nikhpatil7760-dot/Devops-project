@@ -2,8 +2,8 @@
   scrape_interval: 15s
 
 scrape_configs:
-  - job_name: podinfo
+  - job_name: flask-app
     metrics_path: /metrics
     static_configs:
       - targets:
-          - podinfo.podinfo.svc.cluster.local:9898
+          - flask-app.flask-app.svc.cluster.local:8080
