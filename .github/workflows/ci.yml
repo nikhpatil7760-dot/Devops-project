@@ -18,17 +18,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Verify runner Python
-        shell: powershell
+        shell: cmd
         run: |
-          $pythonPath = (py -3.12 -c "import sys; print(sys.executable)").Trim()
-          if (-not (Test-Path -LiteralPath $pythonPath)) {
-            throw "Python 3.12 was not found through the Windows py launcher."
-          }
-          $pythonDirectory = Split-Path -Parent $pythonPath
-          $pythonScripts = Join-Path $pythonDirectory "Scripts"
-          $env:PATH = "$pythonDirectory;$pythonScripts;$env:PATH"
-          "$pythonDirectory" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-          "$pythonScripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          for /f "delims=" %%P in ('py -3.12 -c "import sys; print(sys.executable)"') do set "PYTHON_PATH=%%P"
+          for %%D in ("%PYTHON_PATH%") do set "PYTHON_DIR=%%~dpD"
+          set "PATH=%PYTHON_DIR%;%PYTHON_DIR%Scripts;%PATH%"
+          >> "%GITHUB_PATH%" echo %PYTHON_DIR%
+          >> "%GITHUB_PATH%" echo %PYTHON_DIR%Scripts
           python --version
           python -m ensurepip --upgrade
           python -m pip --version
@@ -42,17 +38,17 @@ jobs:
         run: docker build --pull --tag "devops-platform:${{ github.sha }}" .
       - name: Select existing Kind cluster
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: powershell
+        shell: cmd
         run: kubectl config use-context kind-flask-platform
 
       - name: Load image into existing Kind cluster
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: powershell
+        shell: cmd
         run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
 
       - name: Apply Flask Kubernetes resources
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: powershell
+        shell: cmd
         run: |
           kubectl apply -f kubernetes/namespace.yaml
           kubectl apply -f kubernetes/service.yaml
@@ -63,21 +59,14 @@ jobs:
       - name: Validate rollout and health (RCA and rollback on failure)
         id: validate
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        shell: powershell
+        shell: cmd
         run: python scripts/deployment_check.py --namespace flask-app --timeout-seconds 120
       - name: Run AI RCA for CD failure
         if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
-        shell: powershell
+        shell: cmd
         run: |
-          $incidentDirectory = Join-Path $env:GITHUB_WORKSPACE ".local/incidents"
-          New-Item -ItemType Directory -Force -Path $incidentDirectory | Out-Null
-          $evidence = Get-ChildItem -Path $incidentDirectory -Filter "incident-*.txt" -File -ErrorAction SilentlyContinue |
-            Sort-Object LastWriteTime -Descending |
-            Select-Object -First 1
-          if ($null -eq $evidence) {
-            $evidencePath = Join-Path $incidentDirectory "github-actions-incident-$env:GITHUB_RUN_ID.txt"
-            python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output $evidencePath
-            $evidence = Get-Item -LiteralPath $evidencePath
-          }
-          python scripts/ai-rca.py --namespace flask-app --evidence-file $evidence.FullName --timeout-seconds 30
+          if not exist ".local\incidents" mkdir ".local\incidents"
+          set "EVIDENCE=.local\incidents\github-actions-incident-%GITHUB_RUN_ID%.txt"
+          python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
+          python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --timeout-seconds 30
