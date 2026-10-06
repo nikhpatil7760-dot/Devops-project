@@ -20,6 +20,15 @@ jobs:
       - name: Verify runner Python
         shell: powershell
         run: |
+          $pythonPath = (py -3.12 -c "import sys; print(sys.executable)").Trim()
+          if (-not (Test-Path -LiteralPath $pythonPath)) {
+            throw "Python 3.12 was not found through the Windows py launcher."
+          }
+          $pythonDirectory = Split-Path -Parent $pythonPath
+          $pythonScripts = Join-Path $pythonDirectory "Scripts"
+          $env:PATH = "$pythonDirectory;$pythonScripts;$env:PATH"
+          "$pythonDirectory" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+          "$pythonScripts" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           python --version
           python -m pip --version
       - name: Install dependencies
