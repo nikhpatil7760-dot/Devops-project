@@ -31,10 +31,17 @@ jobs:
       - name: Build Docker image
         run: docker build --pull --tag "devops-platform:${{ github.sha }}" .
 
-      - name: Set up Trivy
-        uses: aquasecurity/setup-trivy@e07451d2e059ed86c2870430ea286b3a9e0bf241
-        with:
-          version: v0.68.2
+      - name: Install Trivy
+        shell: bash
+        run: |
+          TRIVY_VERSION="0.68.2"
+          curl --fail --silent --show-error --location \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+            --output "$RUNNER_TEMP/trivy.tar.gz"
+          mkdir -p "$RUNNER_TEMP/trivy-bin"
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP/trivy-bin"
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/trivy-bin/trivy" --version
 
       - name: Scan Docker image
         run: trivy image --ignore-unfixed --severity HIGH,CRITICAL --exit-code 1 "devops-platform:${{ github.sha }}"
