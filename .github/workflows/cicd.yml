@@ -53,7 +53,7 @@ jobs:
           kubectl apply -f kubernetes/namespace.yaml
           kubectl apply -f kubernetes/service.yaml
           kubectl apply -f kubernetes/deployment.yaml
-          kubectl set image deployment/flask-app flask-app="devops-platform:${{ github.sha }}" --namespace flask-app
+          kubectl set image deployment/flask-app flask-app="devops-platfo:${{ github.sha }}" --namespace flask-app
           kubectl set env deployment/flask-app APP_VERSION="${{ github.sha }}" --namespace flask-app
 
       - name: Validate rollout and health (RCA and rollback on failure)
@@ -61,12 +61,12 @@ jobs:
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: cmd
         run: python scripts/deployment_check.py --namespace flask-app --timeout-seconds 120
-      # - name: Run AI RCA for CD failure
-      #   if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-      #   continue-on-error: true
-      #   shell: cmd
-      #   run: |
-      #     if not exist ".local\incidents" mkdir ".local\incidents"
-      #     set "EVIDENCE=.local\incidents\github-actions-incident-%GITHUB_RUN_ID%.txt"
-      #     python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
-      #     python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --timeout-seconds 30
+      - name: Run AI RCA for CD failure
+        if: failure() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
+        shell: cmd
+        run: |
+          if not exist ".local\incidents" mkdir ".local\incidents"
+          set "EVIDENCE=.local\incidents\github-actions-incident-%GITHUB_RUN_ID%.txt"
+          python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
+          python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --timeout-seconds 30
