@@ -37,17 +37,17 @@ jobs:
       - name: Build Docker image
         run: docker build --pull --tag "devops-platform:${{ github.sha }}" .
       - name: Select existing Kind cluster
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: cmd
         run: kubectl config use-context kind-flask-platform
 
       - name: Load image into existing Kind cluster
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: cmd
-        run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platfo
+        run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
 
       - name: Apply Flask Kubernetes resources
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: cmd
         run: |
           kubectl apply -f kubernetes/namespace.yaml
@@ -58,7 +58,7 @@ jobs:
 
       - name: Validate rollout and health (RCA and rollback on failure)
         id: validate
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: cmd
         run: python scripts/deployment_check.py --namespace flask-app --timeout-seconds 120
       - name: Run AI RCA for CD failure
@@ -70,4 +70,11 @@ jobs:
           set "EVIDENCE=${{ steps.validate.outputs.incident_evidence }}"
           if not defined EVIDENCE set "EVIDENCE=.local\incidents\github-actions-incident-%GITHUB_RUN_ID%.txt"
           if not exist "%EVIDENCE%" python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
-          python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --timeout-seconds 30
+          python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --timeout-seconds 120
+      - name: Upload incident evidence
+        if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: incident-evidence-${{ github.run_id }}
+          path: .local/incidents
+          if-no-files-found: warn

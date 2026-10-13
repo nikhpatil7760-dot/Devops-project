@@ -217,6 +217,8 @@ python scripts/ai-rca.py --namespace flask-app
 
 Use `--evidence-only` to collect evidence without contacting the model. Use `--evidence-file <path>` to analyze a saved incident snapshot. If Ollama is unavailable or returns an incomplete format, the script prints the captured evidence and reports that no RCA was generated. Override `OLLAMA_URL` or `OLLAMA_MODEL` through environment variables if needed.
 
+For an operator-approved remediation attempt, manually dispatch the Ollama remediation workflow with the failed CI run ID. It downloads that run's evidence, asks Ollama for a reviewable unified diff, validates the patch, and uploads it for review. It only applies, tests, commits, and pushes the patch when apply_changes is explicitly enabled; configure the ollama-remediation environment with any required approval rules.
+
 ## 19. Platform Engineering Workflow
 
 Common operations are grouped in one Python entry point instead of requiring developers to remember separate sequences. The workstation owns Kind, LocalStack, Terraform namespace setup, local image promotion, health verification, observability access, incident evidence, and recovery. Required local tools are Python 3.12, Docker Desktop/Compose, Kind, kubectl, Terraform, and Ollama for model-based RCA. LocalStack ECR currently also requires the user's own Auth Token.

@@ -247,7 +247,7 @@ def main():
 Use plain, direct language. Explain technical terms briefly when necessary. Do not invent causes that are not shown in the evidence. The machine-generated STATUS DETERMINATION is authoritative.
 If the evidence says the deployment is degraded, clearly state what failed, what evidence proves it, and the safest remediation. If a RECOVERY ACTION section is present, clearly say whether the previous version was restored and validated. Recovery is controlled by the deployment script; do not provide commands and do not claim that Ollama performed a rollback.
 
-Return exactly these five labeled paragraphs, with one or two complete, readable sentences for each and no preamble:
+Return exactly these five labeled paragraphs, with two to four complete, readable sentences for each and no preamble:
 Incident: ...
 Evidence: ...
 Root Cause: ...
@@ -266,7 +266,7 @@ EVIDENCE:
                 "model": model,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"num_ctx": 4096, "num_predict": 192, "temperature": 0},
+                "options": {"num_ctx": 4096, "num_predict": 384, "temperature": 0},
             }
         ).encode(),
         headers={"Content-Type": "application/json"},
