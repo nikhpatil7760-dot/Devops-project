@@ -148,7 +148,7 @@ It builds and pushes to LocalStack ECR, applies Flask and observability resource
 
 ## 13. Deployment Failure and Rollback
 
-After a rollout or health failure, `scripts/deployment_check.py` collects pod state, deployment description, namespace events, and logs into an ignored `.local/incidents/` evidence snapshot. It performs deterministic `kubectl rollout undo`, waits for the previous revision, and rechecks health before asking Ollama to analyze the saved failure evidence. A slow or unavailable model cannot block recovery; malformed or unavailable model output falls back to a five-field summary derived from the captured Kubernetes evidence. The failed release still exits nonzero to keep the failure visible. AI output is never executed.
+After a rollout or health failure, `scripts/deployment_check.py` collects pod state, deployment description, namespace events, and logs into an ignored `.local/incidents/` evidence snapshot. It performs deterministic `kubectl rollout undo`, waits for the previous revision, and rechecks health before asking Ollama to analyze the saved failure evidence. A slow or unavailable model cannot block recovery; malformed or unavailable model output reports the captured Kubernetes evidence without fabricating an RCA. The failed release still exits nonzero to keep the failure visible. AI output is never executed.
 
 With a healthy release deployed, run the real failure demonstration:
 
@@ -215,7 +215,7 @@ In another terminal after deployment:
 python scripts/ai-rca.py --namespace flask-app
 ```
 
-Use `--evidence-only` to collect evidence without contacting the model. Use `--evidence-file <path>` to analyze a saved incident snapshot. If Ollama is unavailable or returns an incomplete format, the script prints a structured evidence-based fallback. Override `OLLAMA_URL` or `OLLAMA_MODEL` through environment variables if needed.
+Use `--evidence-only` to collect evidence without contacting the model. Use `--evidence-file <path>` to analyze a saved incident snapshot. If Ollama is unavailable or returns an incomplete format, the script prints the captured evidence and reports that no RCA was generated. Override `OLLAMA_URL` or `OLLAMA_MODEL` through environment variables if needed.
 
 ## 19. Platform Engineering Workflow
 

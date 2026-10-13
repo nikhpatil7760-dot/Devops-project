@@ -193,43 +193,11 @@ def collect_evidence(namespace, selector):
     return "\n\n".join(sections)
 
 
-def evidence_summary(evidence):
-    if re.search(r"(?m)^STATUS DETERMINATION: HEALTHY$", evidence):
-        return "\n".join(
-            [
-                "Incident: No active deployment incident is shown.",
-                "Evidence: Desired replicas are updated, ready, and available; pods are Running and ready.",
-                "Root Cause: None indicated by the captured evidence.",
-                "Recommended Remediation: No change is indicated.",
-                "Rollback Recommendation: Not recommended for the healthy revision.",
-            ]
-        )
-
-    issue_lines = [line[2:] for line in evidence.splitlines() if line.startswith("- ")]
-    evidence_text = "; ".join(issue_lines) or "Deployment or pod status is degraded."
-    if "ImagePullBackOff" in evidence or "ErrImagePull" in evidence:
-        root_cause = "The registry returned a pull error for the configured image reference; the evidence reports the image tag was not found."
-        remediation = "Publish or correct the referenced image/tag in its registry and verify it is available before retrying."
-    elif "CrashLoopBackOff" in evidence:
-        root_cause = "The container is repeatedly failing to start, as shown by CrashLoopBackOff."
-        remediation = "Use the captured termination state and application logs to correct the startup failure."
-    elif "not configured image" in evidence:
-        root_cause = "The running pod image does not match the deployment image configured for the requested revision."
-        remediation = "Complete or roll back the requested image rollout, then verify that running pod images match the deployment configuration."
-    else:
-        root_cause = "Undetermined beyond the deployment/pod conditions explicitly recorded above."
-        remediation = "Investigate the listed status and event evidence; do not assume an unsupported cause."
-
-    return "\n".join(
-        [
-            "Incident: The Flask deployment is degraded and rollout validation failed.",
-            f"Evidence: {evidence_text}",
-            f"Root Cause: {root_cause}",
-            f"Recommended Remediation: {remediation}",
-            "Rollback Recommendation: Restore the last known-good revision; deterministic recovery performs and health-checks the rollback.",
-        ]
-    )
-
+def report_without_rca(evidence, reason):
+    """Report collected evidence without inventing an RCA."""
+    print(reason, file=sys.stderr)
+    print("\n=== Captured evidence (no RCA generated) ===")
+    print(evidence)
 
 def has_required_sections(analysis):
     labels = (
@@ -307,21 +275,19 @@ EVIDENCE:
         with urllib.request.urlopen(request, timeout=args.timeout_seconds) as response:
             analysis = json.load(response).get("response", "No response text returned.")
         if not has_required_sections(analysis):
-            print(
-                "Ollama response did not follow the required evidence format; "
-                "using a deterministic summary of the captured evidence."
+            report_without_rca(
+                evidence,
+                "Ollama response did not follow the required evidence format; no RCA was generated.",
             )
-            analysis = evidence_summary(evidence)
-            print(f"\n=== Evidence-grounded RCA ===\n{analysis}")
-            return 0
+            return 1
         print(f"\n=== Ollama RCA ({model}) ===\n{analysis}")
         return 0
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
-        print(f"Ollama analysis unavailable at {endpoint}: {error}. Evidence collection completed.", file=sys.stderr)
-        print("\n=== Evidence-grounded RCA fallback ===")
-        print(evidence_summary(evidence))
+        report_without_rca(
+            evidence,
+            f"Ollama analysis unavailable at {endpoint}: {error}. No RCA was generated.",
+        )
         return 2
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
