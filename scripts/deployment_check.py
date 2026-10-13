@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import urllib.request
@@ -329,6 +330,10 @@ def collect_incident_evidence(namespace: str) -> Path | None:
         return None
 
     if evidence_path.exists():
+        github_output = os.getenv("GITHUB_OUTPUT")
+        if github_output:
+            with Path(github_output).open("a", encoding="utf-8") as output:
+                output.write(f"incident_evidence={evidence_path}\n")
         print(f"Incident evidence saved: {evidence_path}")
         return evidence_path
 
@@ -397,7 +402,7 @@ def main() -> int:
 
     # Diagnostic failures must not prevent the recovery attempt.
     collect_diagnostics(args.namespace)
-    collect_incident_evidence(args.namespace)
+    evidence_path = collect_incident_evidence(args.namespace)
 
     recovered = rollback(
         args.namespace,
@@ -405,6 +410,22 @@ def main() -> int:
         args.health_url,
     )
 
+    if evidence_path:
+        try:
+            with evidence_path.open("a", encoding="utf-8") as evidence_file:
+                evidence_file.write("\nRECOVERY ACTION:\n")
+                if recovered:
+                    evidence_file.write(
+                        "rollback=SUCCEEDED\n"
+                        "The previous deployment revision was restored and validated after the failed rollout.\n"
+                    )
+                else:
+                    evidence_file.write(
+                        "rollback=FAILED\n"
+                        "The previous deployment revision could not be confirmed as restored and healthy.\n"
+                    )
+        except OSError as exc:
+            print(f"Unable to append rollback result to incident evidence: {exc}")
     if recovered:
         print("Rollback recovery PASSED.")
         print(

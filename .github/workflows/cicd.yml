@@ -67,6 +67,9 @@ jobs:
         shell: cmd
         run: |
           if not exist ".local\incidents" mkdir ".local\incidents"
-          set "EVIDENCE=.local\incidents\github-actions-incident-%GITHUB_RUN_ID%.txt"
-          python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
+          set "EVIDENCE=${{ steps.validate.outputs.incident_evidence }}"
+          if not defined EVIDENCE (
+            set "EVIDENCE=.local\incidents\github-actions-incident-%GITHUB_RUN_ID%.txt"
+            python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
+          )
           python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --timeout-seconds 30
