@@ -193,11 +193,52 @@ def collect_evidence(namespace, selector):
     return "\n\n".join(sections)
 
 
-def report_without_rca(evidence, reason):
+def fallback_report(evidence, reason):
+    """Create a readable report when Ollama cannot provide a validated RCA."""
+    if "Kubernetes deployment was not attempted" in evidence:
+        cause = "The image-loading stage failed before Kubernetes deployment; the existing application was not changed by this run."
+        impact = "No user-facing impact from this deployment attempt was demonstrated."
+        recovery = "No recovery was required because Kubernetes deployment was not attempted."
+        next_step = "Correct the image-loading failure, rerun the normal scenario, and verify the exact image tag."
+    elif "rollback=SUCCEEDED" in evidence:
+        cause = "The rollout failed according to the captured deployment evidence; review the events and pod state for the specific cause."
+        impact = "The attempted release was not retained; the previous deployment revision was restored."
+        recovery = "Recovery succeeded and was verified: the previous deployment revision was restored and health-checked."
+        next_step = "Review the captured events and logs, correct the release cause, and validate the next rollout."
+    elif "rollback=FAILED" in evidence:
+        cause = "The rollout failed, and the available evidence does not confirm a healthy restored revision."
+        impact = "Application availability is not confirmed and requires human investigation."
+        recovery = "Recovery was attempted but failed or remains unverified."
+        next_step = "Inspect the deployment, pods, events, and logs, then restore and verify a known-good revision."
+    else:
+        cause = "The available evidence is insufficient to confirm one root cause."
+        impact = "The evidence does not establish the full user-facing impact."
+        recovery = "Recovery remains unverified because no authoritative recovery result was captured."
+        next_step = "Review the captured events and logs, correct the confirmed failure, and rerun health checks."
+    return "\n\n".join([
+        "Incident Summary: A CI/CD, deployment, or application health incident was reported.",
+        "What Happened: The captured evidence records the failed stage and observed system state.",
+        f"Root Cause: {cause}",
+        f"Impact: {impact}",
+        "What Succeeded Before the Failure: Evidence collection completed; earlier successful stages are recorded in the workflow logs.",
+        "Actions Taken: Evidence was collected and deterministic recovery results were recorded when recovery was attempted.",
+        f"Recovery Status: {recovery}",
+        f"What Should I Do Next: {next_step}",
+        "Remaining Issues: Ollama did not provide a validated analysis, so unsupported conclusions are omitted.",
+        f"Evidence: {reason}\n\n{evidence}",
+    ])
+
+
+def report_without_rca(evidence, reason, report_output=None):
     """Report collected evidence without inventing an RCA."""
+    report = fallback_report(evidence, reason)
     print(reason, file=sys.stderr)
-    print("\n=== Captured evidence (no RCA generated) ===")
-    print(evidence)
+    print("\n=== Incident report (deterministic fallback) ===")
+    print(report)
+    if report_output:
+        report_path = Path(report_output)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(report, encoding="utf-8")
 
 def enforce_recovery_recommendation(analysis, evidence):
     """Keep Ollama from contradicting the recovery script's verified result."""
@@ -249,6 +290,7 @@ def main():
     parser.add_argument("--evidence-only", action="store_true")
     parser.add_argument("--evidence-file", help="Analyze a previously captured evidence snapshot.")
     parser.add_argument("--evidence-output", help="Write collected evidence to this UTF-8 file.")
+    parser.add_argument("--report-output", help="Write the final RCA or fallback report to this UTF-8 file.")
     parser.add_argument("--timeout-seconds", type=int, default=180)
     args = parser.parse_args()
 
@@ -306,15 +348,22 @@ EVIDENCE:
             report_without_rca(
                 evidence,
                 "Ollama response did not follow the required evidence format; no RCA was generated.",
+                args.report_output,
             )
             return 1
         analysis = enforce_recovery_recommendation(analysis, evidence)
-        print(f"\n=== Ollama RCA ({model}) ===\n{analysis}")
+        report = f"=== Ollama RCA ({model}) ===\n{analysis}"
+        print(f"\n{report}")
+        if args.report_output:
+            report_path = Path(args.report_output)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(report, encoding="utf-8")
         return 0
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
         report_without_rca(
             evidence,
             f"Ollama analysis unavailable at {endpoint}: {error}. No RCA was generated.",
+            args.report_output,
         )
         return 2
 

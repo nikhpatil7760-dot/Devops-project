@@ -95,7 +95,10 @@ jobs:
             >> "%EVIDENCE%" echo Cause: The intentional image repository name devops-platfo does not match the built repository devops-platform.
             >> "%EVIDENCE%" echo Kubernetes deployment was not attempted, so the existing application was not changed and no Kubernetes rollback was required.
           )
-          python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --timeout-seconds 120
+          set "REPORT=.local\incidents\incident-report-%GITHUB_RUN_ID%.md"
+          python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --report-output "%REPORT%" --timeout-seconds 120
+          type "%REPORT%"
+          type "%REPORT%" >> "%GITHUB_STEP_SUMMARY%"
 
       - name: Upload incident evidence
         if: always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
