@@ -27,6 +27,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Initialize pipeline incident tracking
+        shell: cmd
+        run: |
+          if not exist ".local\incidents" mkdir ".local\incidents"
+          > ".local\incidents\pipeline-stage.txt" echo Checkout completed
+
+      - name: Record stage - Verify runner Python
+        shell: cmd
+        run: >-
+          > ".local\incidents\pipeline-stage.txt" echo Verify runner Python
+
       - name: Verify runner Python
         shell: cmd
         run: |
@@ -39,24 +50,57 @@ jobs:
           python -m ensurepip --upgrade
           python -m pip --version
 
+      - name: Record stage - Install dependencies
+        shell: cmd
+        run: >-
+          > ".local\incidents\pipeline-stage.txt" echo Install dependencies
+
       - name: Install dependencies
         run: python -m pip install -r app/requirements-dev.txt
+
+      - name: Record stage - Run tests
+        shell: cmd
+        run: >-
+          > ".local\incidents\pipeline-stage.txt" echo Run tests
 
       - name: Run tests
         run: python -m pytest app/test_app.py
 
+      - name: Record stage - Build Docker image
+        shell: cmd
+        run: >-
+          > ".local\incidents\pipeline-stage.txt" echo Build Docker image
+
       - name: Build Docker image
         run: docker build --pull --tag "devops-platform:${{ github.sha }}" .
+
+      - name: Record stage - Select existing Kind cluster
+        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
+        shell: cmd
+        run: >-
+          > ".local\incidents\pipeline-stage.txt" echo Select existing Kind cluster
 
       - name: Select existing Kind cluster
         if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
         shell: cmd
         run: kubectl config use-context kind-flask-plat
 
+      - name: Record stage - Load normal image
+        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
+        shell: cmd
+        run: >-
+          > ".local\incidents\pipeline-stage.txt" echo Load normal image
+
       - name: Load normal image into existing Kind cluster
         if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
         shell: cmd
         run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
+
+      - name: Record stage - Load intentional image failure
+        if: success() && github.event_name == 'workflow_dispatch' && inputs.scenario == 'intentional-image-load-failure'
+        shell: cmd
+        run: >-
+          > ".local\incidents\pipeline-stage.txt" echo Load intentional image failure
 
       - name: Load intentionally invalid image name
         if: success() && github.event_name == 'workflow_dispatch' && inputs.scenario == 'intentional-image-load-failure'
@@ -67,6 +111,12 @@ jobs:
           type ".local\incidents\pipeline-image-load.log"
           exit /b 1
 
+      - name: Record stage - Apply Kubernetes resources
+        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
+        shell: cmd
+        run: >-
+          > ".local\incidents\pipeline-stage.txt" echo Apply Kubernetes resources
+
       - name: Apply Flask Kubernetes resources
         if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
         shell: cmd
@@ -76,6 +126,12 @@ jobs:
           kubectl apply -f kubernetes/deployment.yaml
           kubectl set image deployment/flask-app flask-app="devops-platform:${{ github.sha }}" --namespace flask-app
           kubectl set env deployment/flask-app APP_VERSION="${{ github.sha }}" --namespace flask-app
+
+      - name: Record stage - Validate rollout and health
+        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
+        shell: cmd
+        run: >-
+          > ".local\incidents\pipeline-stage.txt" echo Validate rollout and health
 
       - name: Validate rollout and health (RCA and rollback on failure)
         id: validate
