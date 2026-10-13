@@ -199,6 +199,28 @@ def report_without_rca(evidence, reason):
     print("\n=== Captured evidence (no RCA generated) ===")
     print(evidence)
 
+def enforce_recovery_recommendation(analysis, evidence):
+    """Keep Ollama from contradicting the recovery script's verified result."""
+    if "rollback=SUCCEEDED" in evidence:
+        recommendation = (
+            "The failed rollout was rejected, and the previous deployment revision "
+            "was restored and health-checked successfully by the recovery script."
+        )
+    elif "rollback=FAILED" in evidence:
+        recommendation = (
+            "The rollout failed, but the recovery script could not confirm that the "
+            "previous deployment revision was restored and healthy. Manual recovery is required."
+        )
+    else:
+        return analysis
+
+    return re.sub(
+        r"(?ims)^Rollback Recommendation:\s*.*\Z",
+        f"Rollback Recommendation: {recommendation}",
+        analysis.strip(),
+        count=1,
+    )
+
 def has_required_sections(analysis):
     labels = (
         "Incident",
@@ -245,7 +267,7 @@ def main():
 
     prompt = f"""You are writing an incident report for a human operator. Analyze only the Kubernetes evidence below.
 Use plain, direct language. Explain technical terms briefly when necessary. Do not invent causes that are not shown in the evidence. The machine-generated STATUS DETERMINATION is authoritative.
-If the evidence says the deployment is degraded, clearly state what failed, what evidence proves it, and the safest remediation. If a RECOVERY ACTION section is present, clearly say whether the previous version was restored and validated. Recovery is controlled by the deployment script; do not provide commands and do not claim that Ollama performed a rollback.
+If the evidence says the deployment is degraded, clearly state what failed, what evidence proves it, and the safest remediation. If a RECOVERY ACTION section is present, it is authoritative: when rollback=SUCCEEDED, explicitly say that the previous version was restored and validated; never say that there is no previous version. Recovery is controlled by the deployment script; do not provide commands and do not claim that Ollama performed a rollback.
 
 Return exactly these five labeled paragraphs, with two to four complete, readable sentences for each and no preamble:
 Incident: ...
@@ -281,6 +303,7 @@ EVIDENCE:
                 "Ollama response did not follow the required evidence format; no RCA was generated.",
             )
             return 1
+        analysis = enforce_recovery_recommendation(analysis, evidence)
         print(f"\n=== Ollama RCA ({model}) ===\n{analysis}")
         return 0
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
