@@ -51,7 +51,7 @@ jobs:
       - name: Select existing Kind cluster
         if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
         shell: cmd
-        run: kubectl config use-context kind-flask-platform
+        run: kubectl config use-context kind-flask-plat
 
       - name: Load normal image into existing Kind cluster
         if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
