@@ -201,7 +201,12 @@ def report_without_rca(evidence, reason):
 
 def enforce_recovery_recommendation(analysis, evidence):
     """Keep Ollama from contradicting the recovery script's verified result."""
-    if "rollback=SUCCEEDED" in evidence:
+    if "Kubernetes deployment was not attempted" in evidence:
+        recommendation = (
+            "The intentional image-load step failed before Kubernetes deployment, so the "
+            "existing application was left running and no rollback was required."
+        )
+    elif "rollback=SUCCEEDED" in evidence:
         recommendation = (
             "The failed rollout was rejected, and the previous deployment revision "
             "was restored and health-checked successfully by the recovery script."
@@ -267,7 +272,7 @@ def main():
 
     prompt = f"""You are writing an incident report for a human operator. Analyze only the Kubernetes evidence below.
 Use plain, direct language. Explain technical terms briefly when necessary. Do not invent causes that are not shown in the evidence. The machine-generated STATUS DETERMINATION is authoritative.
-If the evidence says the deployment is degraded, clearly state what failed, what evidence proves it, and the safest remediation. If a RECOVERY ACTION section is present, it is authoritative: when rollback=SUCCEEDED, explicitly say that the previous version was restored and validated; never say that there is no previous version. Recovery is controlled by the deployment script; do not provide commands and do not claim that Ollama performed a rollback.
+If a PIPELINE FAILURE section is present, classify that CI/CD stage failure first. If it says Kubernetes deployment was not attempted, state that the existing application was not changed and do not describe the current Kubernetes state as a failure caused by this run. If the evidence says the deployment is degraded, clearly state what failed, what evidence proves it, and the safest remediation. If a RECOVERY ACTION section is present, it is authoritative: when rollback=SUCCEEDED, explicitly say that the previous version was restored and validated; never say that there is no previous version. Recovery is controlled by the deployment script; do not provide commands and do not claim that Ollama performed a rollback.
 
 Return exactly these five labeled paragraphs, with two to four complete, readable sentences for each and no preamble:
 Incident: ...
