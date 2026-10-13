@@ -35,7 +35,7 @@ jobs:
         run: python -m pytest app/test_app.py
 
       - name: Build Docker image
-        run: docker build --pull --tag "devops-platform:${{ github.sha }}" .
+        run: docker build --pull --tag "devops-platfo:${{ github.sha }}" .
       - name: Select existing Kind cluster
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: cmd
