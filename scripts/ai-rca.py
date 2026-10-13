@@ -9,6 +9,26 @@ import urllib.error
 import urllib.request
 
 
+def image_identity(image):
+    """Normalize Kubernetes' implicit Docker Hub library prefix for comparison."""
+    return image.removeprefix("docker.io/library/")
+
+
+def image_drift_issues(configured_images, pod_images):
+    """Return issues when running containers do not match the requested image."""
+    issues = []
+    for container_name, configured_image in configured_images.items():
+        observed_images = pod_images.get(container_name, set())
+        if observed_images and image_identity(configured_image) not in {
+            image_identity(image) for image in observed_images
+        }:
+            observed = ", ".join(sorted(observed_images))
+            issues.append(
+                f"container {container_name} is running image {observed}, "
+                f"not configured image {configured_image}"
+            )
+    return issues
+
 def kubectl(*arguments):
     result = subprocess.run(
         ["kubectl", *arguments], capture_output=True, text=True, check=False
@@ -29,6 +49,7 @@ def collect_evidence(namespace, selector):
         pods = json.loads(pod_json).get("items", [])
     except json.JSONDecodeError:
         pods = []
+    deployment_spec = {}
     try:
         deployment = json.loads(deployment_json)
         deployment_spec = deployment.get("spec", {})
@@ -48,6 +69,13 @@ def collect_evidence(namespace, selector):
         container_images = []
 
     issues = []
+    configured_images = {
+        container.get("name", "unknown"): container.get("image", "unknown")
+        for container in deployment_spec.get("template", {})
+        .get("spec", {})
+        .get("containers", [])
+    }
+    pod_images = {}
     if not deployment_json.startswith("{"):
         issues.append("deployment state could not be read")
     elif ready != desired or available != desired or updated != desired:
@@ -97,9 +125,11 @@ def collect_evidence(namespace, selector):
         containers = status.get("containerStatuses", [])
         for container in containers:
             name = container.get("name", "unknown")
+            pod_images.setdefault(name, set()).add(container.get("image", "unknown"))
             state = container.get("state", {})
             waiting = state.get("waiting")
             terminated = state.get("terminated")
+            last_terminated = container.get("lastState", {}).get("terminated")
             if status.get("phase") != "Running":
                 issues.append(
                     f"pod {metadata.get('name', 'unknown')} phase is {status.get('phase', 'unknown')}"
@@ -113,6 +143,10 @@ def collect_evidence(namespace, selector):
             if terminated and terminated.get("exitCode", 0) != 0:
                 issues.append(
                     f"container {name} terminated with exitCode={terminated.get('exitCode')} reason={terminated.get('reason', 'unknown')}"
+                )
+            if last_terminated and last_terminated.get("exitCode", 0) != 0:
+                issues.append(
+                    f"container {name} previously terminated with exitCode={last_terminated.get('exitCode')} reason={last_terminated.get('reason', 'unknown')}"
                 )
         container_statuses = [
             {
@@ -142,6 +176,7 @@ def collect_evidence(namespace, selector):
                 ]
             )
         )
+    issues.extend(image_drift_issues(configured_images, pod_images))
     sections.extend(
         [
             "EVENTS:",
@@ -159,7 +194,7 @@ def collect_evidence(namespace, selector):
 
 
 def evidence_summary(evidence):
-    if "STATUS DETERMINATION: HEALTHY" in evidence:
+    if re.search(r"(?m)^STATUS DETERMINATION: HEALTHY$", evidence):
         return "\n".join(
             [
                 "Incident: No active deployment incident is shown.",
@@ -178,6 +213,9 @@ def evidence_summary(evidence):
     elif "CrashLoopBackOff" in evidence:
         root_cause = "The container is repeatedly failing to start, as shown by CrashLoopBackOff."
         remediation = "Use the captured termination state and application logs to correct the startup failure."
+    elif "not configured image" in evidence:
+        root_cause = "The running pod image does not match the deployment image configured for the requested revision."
+        remediation = "Complete or roll back the requested image rollout, then verify that running pod images match the deployment configuration."
     else:
         root_cause = "Undetermined beyond the deployment/pod conditions explicitly recorded above."
         remediation = "Investigate the listed status and event evidence; do not assume an unsupported cause."
