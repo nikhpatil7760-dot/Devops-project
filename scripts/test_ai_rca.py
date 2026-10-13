@@ -82,6 +82,24 @@ class ReportOutputTests(TestCase):
         self.assertIn("No rollback was required", report)
         self.assertIn("Next Step:", report)
 
+    def test_stage_marker_reports_actual_failed_stage(self):
+        evidence = (
+            "PIPELINE STAGE MARKER:\n"
+            "Select existing Kind cluster\n"
+            "PIPELINE STAGE OUTPUT:\n"
+            "error: no context exists with the name: kind-flask-plat\n"
+        )
+        with patch.object(
+            ai_rca.urllib.request,
+            "urlopen",
+            side_effect=URLError("offline"),
+        ):
+            result, report = self.run_main(evidence, "missing-context.md")
+        self.assertEqual(result, 2)
+        self.assertIn("failed during Select existing Kind cluster", report)
+        self.assertIn("context that does not exist", report)
+        self.assertIn("Kubernetes deployment was not attempted", report)
+
     def test_evidence_only_does_not_call_ollama(self):
         with TemporaryDirectory() as directory:
             evidence_path = Path(directory) / "evidence.txt"

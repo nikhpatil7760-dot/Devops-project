@@ -195,6 +195,35 @@ def collect_evidence(namespace, selector):
 
 def fallback_report(evidence, reason):
     """Create a short evidence-specific report when Ollama cannot provide an RCA."""
+    stage = ""
+    marker = "PIPELINE STAGE MARKER:"
+    if marker in evidence:
+        marker_lines = evidence.split(marker, 1)[1].splitlines()
+        stage = next((line.strip() for line in marker_lines if line.strip()), "")
+    if not stage:
+        stage_names = {"Verify runner Python", "Install dependencies", "Run tests", "Build Docker image", "Select existing Kind cluster", "Load normal image", "Load intentional image failure", "Apply Kubernetes resources", "Validate rollout and health"}
+        stage = next((line.strip() for line in evidence.splitlines() if line.strip() in stage_names), "")
+    if stage:
+        output_line = next((line.strip() for line in evidence.splitlines() if "no context exists" in line.lower() or "error:" in line.lower() or "failed" in line.lower()), "The stage command returned a failure.")
+        deployment_attempted = stage in {"Apply Kubernetes resources", "Validate rollout and health"}
+        impact = "Kubernetes deployment may have started; review the deployment evidence." if deployment_attempted else "Kubernetes deployment was not attempted after this stage failed."
+        if "no context exists" in output_line.lower():
+            root_cause = "The workflow requested a Kubernetes context that does not exist on the runner."
+            next_step = "Use the runner's actual Kind context in the workflow, then rerun the pipeline."
+        elif "not recognized" in output_line.lower() or "command not found" in output_line.lower():
+            root_cause = "A command required by this workflow stage is not installed or is not on the runner PATH."
+            next_step = "Install the missing tool or correct the runner PATH, then rerun the pipeline."
+        else:
+            root_cause = "The stage command returned an error; the recorded output and related repository files identify what must be corrected."
+            next_step = "Review the failed command and related workflow or configuration, make the required change, then rerun the pipeline."
+
+        return "\n".join([
+            f"Incident: The pipeline failed during {stage}.",
+            f"Evidence: {output_line} {impact}",
+            f"Root Cause: {root_cause}",
+            f"Next Step: {next_step}",
+            "Recovery: No verified recovery action was recorded by the failed pipeline stage.",
+        ])
     if "Kubernetes deployment was not attempted" in evidence:
         return "\n".join([
             "Incident: Image loading failed before deployment.",

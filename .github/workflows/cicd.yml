@@ -83,7 +83,11 @@ jobs:
       - name: Select existing Kind cluster
         if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
         shell: cmd
-        run: kubectl config use-context kind-flask-plat
+        run: |
+          kubectl config use-context kind-flask-platform > ".local\\incidents\\pipeline-stage.log" 2>&1
+          set "RESULT=%ERRORLEVEL%"
+          type ".local\\incidents\\pipeline-stage.log"
+          exit /b %RESULT%
 
       - name: Record stage - Load normal image
         if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
@@ -148,6 +152,15 @@ jobs:
           set "EVIDENCE=${{ steps.validate.outputs.incident_evidence }}"
           if not defined EVIDENCE set "EVIDENCE=.local\incidents\github-actions-incident-${{ github.run_id }}.txt"
           if not exist "%EVIDENCE%" python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
+          if exist ".local\incidents\pipeline-stage.txt" (
+            >> "%EVIDENCE%" echo.
+            >> "%EVIDENCE%" echo PIPELINE STAGE MARKER:
+            type ".local\incidents\pipeline-stage.txt" >> "%EVIDENCE%"
+          )
+          if exist ".local\incidents\pipeline-stage.log" (
+            >> "%EVIDENCE%" echo PIPELINE STAGE OUTPUT:
+            type ".local\incidents\pipeline-stage.log" >> "%EVIDENCE%"
+          )
           if "${{ github.event_name }}"=="workflow_dispatch" if "${{ inputs.scenario }}"=="intentional-image-load-failure" (
             >> "%EVIDENCE%" echo.
             >> "%EVIDENCE%" echo PIPELINE FAILURE:
