@@ -194,38 +194,27 @@ def collect_evidence(namespace, selector):
 
 
 def fallback_report(evidence, reason):
-    """Create a readable report when Ollama cannot provide a validated RCA."""
+    """Create a short plain-language report when Ollama cannot provide an RCA."""
     if "Kubernetes deployment was not attempted" in evidence:
-        cause = "The image-loading stage failed before Kubernetes deployment; the existing application was not changed by this run."
-        impact = "No user-facing impact from this deployment attempt was demonstrated."
-        recovery = "No recovery was required because Kubernetes deployment was not attempted."
-        next_step = "Correct the image-loading failure, rerun the normal scenario, and verify the exact image tag."
-    elif "rollback=SUCCEEDED" in evidence:
-        cause = "The rollout failed according to the captured deployment evidence; review the events and pod state for the specific cause."
-        impact = "The attempted release was not retained; the previous deployment revision was restored."
-        recovery = "Recovery succeeded and was verified: the previous deployment revision was restored and health-checked."
-        next_step = "Review the captured events and logs, correct the release cause, and validate the next rollout."
+        return "\n".join([
+            "Incident: Image loading failed before deployment.",
+            "Evidence: The failed command output and image tags are saved in the incident artifact; Kubernetes deployment was skipped.",
+            "Root Cause: The image-loading command failed, so the existing application was not changed.",
+            "Next Step: Rerun the normal deployment; request the manual remediation workflow only if a code or configuration change is needed.",
+            "Recovery: No rollback was required.",
+        ])
+    if "rollback=SUCCEEDED" in evidence:
+        recovery = "Recovery: The previous version was restored and health-checked successfully."
     elif "rollback=FAILED" in evidence:
-        cause = "The rollout failed, and the available evidence does not confirm a healthy restored revision."
-        impact = "Application availability is not confirmed and requires human investigation."
-        recovery = "Recovery was attempted but failed or remains unverified."
-        next_step = "Inspect the deployment, pods, events, and logs, then restore and verify a known-good revision."
+        recovery = "Recovery: Rollback was attempted but was not verified; manual investigation is required."
     else:
-        cause = "The available evidence is insufficient to confirm one root cause."
-        impact = "The evidence does not establish the full user-facing impact."
-        recovery = "Recovery remains unverified because no authoritative recovery result was captured."
-        next_step = "Review the captured events and logs, correct the confirmed failure, and rerun health checks."
-    return "\n\n".join([
-        "Incident Summary: A CI/CD, deployment, or application health incident was reported.",
-        "What Happened: The captured evidence records the failed stage and observed system state.",
-        f"Root Cause: {cause}",
-        f"Impact: {impact}",
-        "What Succeeded Before the Failure: Evidence collection completed; earlier successful stages are recorded in the workflow logs.",
-        "Actions Taken: Evidence was collected and deterministic recovery results were recorded when recovery was attempted.",
-        f"Recovery Status: {recovery}",
-        f"What Should I Do Next: {next_step}",
-        "Remaining Issues: Ollama did not provide a validated analysis, so unsupported conclusions are omitted.",
-        f"Evidence: {reason}\n\n{evidence}",
+        recovery = "Recovery: No verified recovery result was recorded."
+    return "\n".join([
+        "Incident: Deployment or application health checks reported a failure.",
+        "Evidence: The relevant logs, events, and pod state are saved in the incident artifact.",
+        "Root Cause: The available evidence does not prove one specific cause.",
+        "Next Step: Review the artifact, fix the confirmed issue, and rerun the health check; use manual remediation only if needed.",
+        recovery,
     ])
 
 
@@ -233,13 +222,12 @@ def report_without_rca(evidence, reason, report_output=None):
     """Report collected evidence without inventing an RCA."""
     report = fallback_report(evidence, reason)
     print(reason, file=sys.stderr)
-    print("\n=== Incident report (deterministic fallback) ===")
+    print("\n=== Short incident report (deterministic fallback) ===")
     print(report)
     if report_output:
         report_path = Path(report_output)
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report, encoding="utf-8")
-
 def enforce_recovery_recommendation(analysis, evidence):
     """Keep Ollama from contradicting the recovery script's verified result."""
     if "Kubernetes deployment was not attempted" in evidence:
@@ -316,7 +304,7 @@ def main():
 Use plain, direct language. Explain technical terms briefly when necessary. Do not invent causes that are not shown in the evidence. The machine-generated STATUS DETERMINATION is authoritative.
 If a PIPELINE FAILURE section is present, classify that CI/CD stage failure first. If it says Kubernetes deployment was not attempted, state that the existing application was not changed and do not describe the current Kubernetes state as a failure caused by this run. If the evidence says the deployment is degraded, clearly state what failed, what evidence proves it, and the safest remediation. If a RECOVERY ACTION section is present, it is authoritative: when rollback=SUCCEEDED, explicitly say that the previous version was restored and validated; never say that there is no previous version. Recovery is controlled by the deployment script; do not provide commands and do not claim that Ollama performed a rollback. Use simple, human-readable language. In Recommended Remediation, say whether a code or configuration change is needed; if it is, tell the operator to manually start the Ollama remediation workflow for review and approval, and do not claim that it already ran.
 
-Return exactly these five labeled paragraphs, with two to four complete, readable sentences for each and no preamble:
+Return exactly five short labeled lines, one plain-language sentence per line, with no preamble and no bullet list:
 Incident: ...
 Evidence: ...
 Root Cause: ...
@@ -335,7 +323,7 @@ EVIDENCE:
                 "model": model,
                 "prompt": prompt,
                 "stream": False,
-                "options": {"num_ctx": 4096, "num_predict": 384, "temperature": 0},
+                "options": {"num_ctx": 4096, "num_predict": 160, "temperature": 0},
             }
         ).encode(),
         headers={"Content-Type": "application/json"},

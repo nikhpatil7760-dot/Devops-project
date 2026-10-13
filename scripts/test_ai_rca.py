@@ -78,9 +78,9 @@ class ReportOutputTests(TestCase):
         ):
             result, report = self.run_main(evidence, "fallback.md")
         self.assertEqual(result, 2)
-        self.assertIn("Kubernetes deployment was not attempted", report)
-        self.assertIn("No recovery was required", report)
-        self.assertIn("What Should I Do Next:", report)
+        self.assertIn("Kubernetes deployment was skipped", report)
+        self.assertIn("No rollback was required", report)
+        self.assertIn("Next Step:", report)
 
     def test_evidence_only_does_not_call_ollama(self):
         with TemporaryDirectory() as directory:
@@ -106,8 +106,8 @@ class ReportOutputTests(TestCase):
         ):
             result, report = self.run_main("STATUS DETERMINATION: DEGRADED", "invalid.md")
         self.assertEqual(result, 1)
-        self.assertIn("Incident Summary:", report)
-        self.assertIn("Remaining Issues:", report)
+        self.assertIn("Incident:", report)
+        self.assertIn("Recovery:", report)
 
 
 if __name__ == "__main__":
