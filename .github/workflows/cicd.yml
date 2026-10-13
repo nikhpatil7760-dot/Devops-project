@@ -96,8 +96,6 @@ jobs:
             >> "%EVIDENCE%" echo.
             >> "%EVIDENCE%" echo PIPELINE FAILURE:
             >> "%EVIDENCE%" echo Failed stage: image loading.
-            >> "%EVIDENCE%" echo Expected image: devops-platform:${{ github.sha }}
-            >> "%EVIDENCE%" echo Attempted image: devops-platform:${{ github.sha }}
             >> "%EVIDENCE%" echo Kubernetes deployment was not attempted because the image-loading command failed.
             >> "%EVIDENCE%" echo Runtime command output:
             if exist ".local\incidents\pipeline-image-load.log" type ".local\incidents\pipeline-image-load.log" >> "%EVIDENCE%"

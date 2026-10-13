@@ -269,6 +269,35 @@ def has_required_sections(analysis):
     )
 
 
+def compact_text(text, limit):
+    """Keep prompts within the local model context while preserving both ends."""
+    if len(text) <= limit:
+        return text
+    half = max(1, (limit - 80) // 2)
+    return text[:half] + "\n... [middle omitted from Ollama prompt] ...\n" + text[-half:]
+
+
+def collect_repository_context():
+    """Read a small, relevant repository snapshot without executing or modifying it."""
+    root = Path(__file__).resolve().parents[1]
+    relative_files = [
+        ".github/workflows/cicd.yml",
+        "scripts/deployment_check.py",
+        "kubernetes/deployment.yaml",
+        "Dockerfile",
+        "app/app.py",
+    ]
+    sections = []
+    for relative_file in relative_files:
+        path = root / relative_file
+        try:
+            content = path.read_text(encoding="utf-8")
+        except OSError as error:
+            sections.append(f"--- {relative_file} ---\nUnavailable: {error}")
+            continue
+        sections.append(f"--- {relative_file} ---\n{compact_text(content, 1800)}")
+    return compact_text("\n\n".join(sections), 8000)
+
 def main():
     parser = argparse.ArgumentParser(
         description="Collect Kubernetes evidence and ask local Ollama for read-only RCA."
@@ -300,7 +329,9 @@ def main():
         print(evidence)
         return 0
 
-    prompt = f"""You are writing an incident report for a human operator. Analyze only the Kubernetes evidence below.
+    repository_context = collect_repository_context()
+    prompt_evidence = compact_text(evidence, 8000)
+    prompt = f"""You are writing a short incident report for a human operator. Analyze the incident evidence and the read-only repository context below.
 Use plain, direct language. Explain technical terms briefly when necessary. Do not invent causes that are not shown in the evidence. The machine-generated STATUS DETERMINATION is authoritative.
 If a PIPELINE FAILURE section is present, classify that CI/CD stage failure first. If it says Kubernetes deployment was not attempted, state that the existing application was not changed and do not describe the current Kubernetes state as a failure caused by this run. If the evidence says the deployment is degraded, clearly state what failed, what evidence proves it, and the safest remediation. If a RECOVERY ACTION section is present, it is authoritative: when rollback=SUCCEEDED, explicitly say that the previous version was restored and validated; never say that there is no previous version. Recovery is controlled by the deployment script; do not provide commands and do not claim that Ollama performed a rollback. Use simple, human-readable language. In Recommended Remediation, say whether a code or configuration change is needed; if it is, tell the operator to manually start the Ollama remediation workflow for review and approval, and do not claim that it already ran.
 
@@ -312,7 +343,10 @@ Recommended Remediation: ...
 Rollback Recommendation: ...
 
 EVIDENCE:
-{evidence}
+{prompt_evidence}
+
+REPOSITORY CONTEXT:
+{repository_context}
 """
     endpoint = os.getenv("OLLAMA_URL", "http://localhost:11434/api/generate")
     model = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
