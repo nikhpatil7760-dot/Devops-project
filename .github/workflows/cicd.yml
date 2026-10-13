@@ -44,7 +44,7 @@ jobs:
       - name: Load image into existing Kind cluster
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: cmd
-        run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
+        run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platfo
 
       - name: Apply Flask Kubernetes resources
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
