@@ -61,7 +61,11 @@ jobs:
       - name: Load intentionally invalid image name
         if: success() && github.event_name == 'workflow_dispatch' && inputs.scenario == 'intentional-image-load-failure'
         shell: cmd
-        run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
+        run: |
+          if not exist ".local\incidents" mkdir ".local\incidents"
+          kind load docker-image "devops-platfo:${{ github.sha }}" --name flask-platform > ".local\incidents\pipeline-image-load.log" 2>&1
+          type ".local\incidents\pipeline-image-load.log"
+          exit /b 1
 
       - name: Apply Flask Kubernetes resources
         if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
@@ -91,14 +95,20 @@ jobs:
           if "${{ github.event_name }}"=="workflow_dispatch" if "${{ inputs.scenario }}"=="intentional-image-load-failure" (
             >> "%EVIDENCE%" echo.
             >> "%EVIDENCE%" echo PIPELINE FAILURE:
-            >> "%EVIDENCE%" echo Failed stage: Load intentionally invalid image name.
-            >> "%EVIDENCE%" echo Cause: The intentional image repository name devops-platfo does not match the built repository devops-platform.
-            >> "%EVIDENCE%" echo Kubernetes deployment was not attempted, so the existing application was not changed and no Kubernetes rollback was required.
+            >> "%EVIDENCE%" echo Failed stage: image loading.
+            >> "%EVIDENCE%" echo Expected image: devops-platform:${{ github.sha }}
+            >> "%EVIDENCE%" echo Attempted image: devops-platfo:${{ github.sha }}
+            >> "%EVIDENCE%" echo Kubernetes deployment was not attempted because the image-loading command failed.
+            >> "%EVIDENCE%" echo Runtime command output:
+            if exist ".local\incidents\pipeline-image-load.log" type ".local\incidents\pipeline-image-load.log" >> "%EVIDENCE%"
           )
           set "REPORT=.local\incidents\incident-report-%GITHUB_RUN_ID%.md"
           python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --report-output "%REPORT%" --timeout-seconds 120
           type "%REPORT%"
           type "%REPORT%" >> "%GITHUB_STEP_SUMMARY%"
+          >> "%GITHUB_STEP_SUMMARY%" echo.
+          >> "%GITHUB_STEP_SUMMARY%" echo NEXT ACTION: If the report identifies a code or configuration change, a human must review the evidence and manually start the Ollama remediation workflow.
+          >> "%GITHUB_STEP_SUMMARY%" echo The remediation workflow creates a reviewable patch and applies it only when human approval enables apply_changes.
 
       - name: Upload incident evidence
         if: always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
