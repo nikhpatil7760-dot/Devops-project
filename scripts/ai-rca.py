@@ -194,14 +194,39 @@ def collect_evidence(namespace, selector):
 
 
 def fallback_report(evidence, reason):
-    """Create a short plain-language report when Ollama cannot provide an RCA."""
+    """Create a short evidence-specific report when Ollama cannot provide an RCA."""
     if "Kubernetes deployment was not attempted" in evidence:
         return "\n".join([
             "Incident: Image loading failed before deployment.",
-            "Evidence: The failed command output and image tags are saved in the incident artifact; Kubernetes deployment was skipped.",
+            "Evidence: The runtime command output is saved in the incident artifact; Kubernetes deployment was skipped.",
             "Root Cause: The image-loading command failed, so the existing application was not changed.",
-            "Next Step: Rerun the normal deployment; request the manual remediation workflow only if a code or configuration change is needed.",
+            "Next Step: Correct the image-loading problem and rerun the normal deployment.",
             "Recovery: No rollback was required.",
+        ])
+    if "not configured image" in evidence:
+        detail = next((line.strip() for line in evidence.splitlines() if "not configured image" in line), "The running image differs from the configured image.")
+        return "\n".join([
+            "Incident: The deployment is running a different image than the configured version.",
+            f"Evidence: {detail}",
+            "Root Cause: The deployment configuration and running image are out of sync.",
+            "Next Step: Check the image tag used by the deployment workflow, then rerun deployment and health checks.",
+            "Recovery: No verified recovery action was recorded.",
+        ])
+    if "ErrImagePull" in evidence or "ImagePullBackOff" in evidence:
+        return "\n".join([
+            "Incident: Kubernetes could not download the application image.",
+            "Evidence: The incident contains an image-pull error from Kubernetes.",
+            "Root Cause: The image is unavailable, incorrectly named, or the registry cannot be reached.",
+            "Next Step: Verify the image name, registry access, and pull credentials, then rerun deployment.",
+            "Recovery: No verified recovery action was recorded.",
+        ])
+    if "Readiness probe failed" in evidence or "not ready" in evidence:
+        return "\n".join([
+            "Incident: The application did not pass its readiness check.",
+            "Evidence: Kubernetes recorded a readiness failure in the incident evidence.",
+            "Root Cause: The application was not ready to receive traffic when Kubernetes checked it.",
+            "Next Step: Review application logs and the readiness configuration, then rerun the health check.",
+            "Recovery: No verified recovery action was recorded.",
         ])
     if "rollback=SUCCEEDED" in evidence:
         recovery = "Recovery: The previous version was restored and health-checked successfully."
@@ -213,7 +238,7 @@ def fallback_report(evidence, reason):
         "Incident: Deployment or application health checks reported a failure.",
         "Evidence: The relevant logs, events, and pod state are saved in the incident artifact.",
         "Root Cause: The available evidence does not prove one specific cause.",
-        "Next Step: Review the artifact, fix the confirmed issue, and rerun the health check; use manual remediation only if needed.",
+        "Next Step: Review the artifact, fix the confirmed issue, and rerun the health check.",
         recovery,
     ])
 
@@ -222,12 +247,13 @@ def report_without_rca(evidence, reason, report_output=None):
     """Report collected evidence without inventing an RCA."""
     report = fallback_report(evidence, reason)
     print(reason, file=sys.stderr)
-    print("\n=== Short incident report (deterministic fallback) ===")
-    print(report)
     if report_output:
         report_path = Path(report_output)
         report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(report, encoding="utf-8")
+    else:
+        print("\n=== Short incident report (deterministic fallback) ===")
+        print(report)
 def enforce_recovery_recommendation(analysis, evidence):
     """Keep Ollama from contradicting the recovery script's verified result."""
     if "Kubernetes deployment was not attempted" in evidence:
@@ -375,11 +401,12 @@ REPOSITORY CONTEXT:
             return 1
         analysis = enforce_recovery_recommendation(analysis, evidence)
         report = f"=== Ollama RCA ({model}) ===\n{analysis}"
-        print(f"\n{report}")
         if args.report_output:
             report_path = Path(args.report_output)
             report_path.parent.mkdir(parents=True, exist_ok=True)
             report_path.write_text(report, encoding="utf-8")
+        else:
+            print(f"\n{report}")
         return 0
     except (OSError, urllib.error.URLError, json.JSONDecodeError) as error:
         report_without_rca(
