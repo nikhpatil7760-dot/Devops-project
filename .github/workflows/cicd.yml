@@ -44,7 +44,7 @@ jobs:
       - name: Load image into existing Kind cluster
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: cmd
-        run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platfo
+        run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
 
       - name: Apply Flask Kubernetes resources
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -68,8 +68,6 @@ jobs:
         run: |
           if not exist ".local\incidents" mkdir ".local\incidents"
           set "EVIDENCE=${{ steps.validate.outputs.incident_evidence }}"
-          if not defined EVIDENCE (
-            set "EVIDENCE=.local\incidents\github-actions-incident-%GITHUB_RUN_ID%.txt"
-            python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
-          )
+          if not defined EVIDENCE set "EVIDENCE=.local\incidents\github-actions-incident-%GITHUB_RUN_ID%.txt"
+          if not exist "%EVIDENCE%" python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
           python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --timeout-seconds 30

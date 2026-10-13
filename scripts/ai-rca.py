@@ -238,9 +238,9 @@ def main():
     except OSError as error:
         print(f"Could not read or save incident evidence: {error}", file=sys.stderr)
         return 1
-    print("=== Incident evidence ===")
-    print(evidence)
     if args.evidence_only:
+        print("=== Incident evidence ===")
+        print(evidence)
         return 0
 
     prompt = f"""You are writing an incident report for a human operator. Analyze only the Kubernetes evidence below.
