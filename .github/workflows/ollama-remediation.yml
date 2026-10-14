@@ -32,7 +32,7 @@ jobs:
           path: .local/incidents
       - name: Read incident identity
         id: identity
-        shell: pwsh
+        shell: powershell
         run: |
           $incident = Get-Content -Raw .local/incidents/incident.json | ConvertFrom-Json
           if ([string]::IsNullOrWhiteSpace($incident.commit_sha) -or $incident.commit_sha -eq 'unknown') { throw 'Incident has no immutable source SHA.' }
@@ -98,7 +98,7 @@ jobs:
           name: remediation-binding-${{ github.run_id }}
           path: .local
       - name: Revalidate exact proposal after environment approval
-        shell: pwsh
+        shell: powershell
         run: |
           $head = (git rev-parse HEAD).Trim()
           py -3.12 scripts/proposal_binding.py verify --incident .local/incidents/incident.json --patch .local/ollama-remediation.patch --manifest .local/proposal.json --head $head
@@ -108,7 +108,7 @@ jobs:
           $patch = Get-Content -Raw .local/ollama-remediation.patch
           if (-not [string]::IsNullOrWhiteSpace($patch)) { git apply --check --recount .local/ollama-remediation.patch; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
       - name: Apply only the approved patch and validate
-        shell: pwsh
+        shell: powershell
         run: |
           $patch = Get-Content -Raw .local/ollama-remediation.patch
           if ([string]::IsNullOrWhiteSpace($patch)) { Write-Host 'No repository change was proposed; no code validation is required.'; exit 0 }
@@ -120,7 +120,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff --check
       - name: Create dedicated branch and pull request
-        shell: pwsh
+        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

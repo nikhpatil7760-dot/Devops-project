@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Bootstrap runner Python packaging
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Bootstrap runner Python packaging" -- py -3.12 -m ensurepip --upgrade
       - name: Verify runner Python
         run: py -3.12 scripts/incident_pipeline.py run --stage "Verify runner Python" -- py -3.12 -m pip --version
       - name: Install dependencies
@@ -65,7 +67,7 @@ jobs:
       - name: Collect failure evidence and GitHub logs
         if: failure()
         continue-on-error: true
-        shell: pwsh
+        shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
