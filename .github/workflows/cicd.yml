@@ -3,182 +3,85 @@ name: Flask CI
 on:
   push:
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
     inputs:
       scenario:
-        description: "Choose the normal deployment or the intentional image-load failure demo"
+        description: Optional failure demonstration; deployment is never run from manual or pull-request validation
         required: true
         default: normal
         type: choice
-        options:
-          - normal
-          - intentional-image-load-failure
+        options: [normal, intentional-image-load-failure]
 
 permissions:
   contents: read
 
 jobs:
-  test-build:
-    name: Test, build, and deploy
+  pipeline:
     runs-on: self-hosted
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Initialize pipeline incident tracking
-        shell: cmd
-        run: |
-          if not exist ".local\incidents" mkdir ".local\incidents"
-          > ".local\incidents\pipeline-stage.txt" echo Checkout completed
-
-      - name: Record stage - Verify runner Python
-        shell: cmd
-        run: >-
-          > ".local\incidents\pipeline-stage.txt" echo Verify runner Python
-
       - name: Verify runner Python
-        shell: cmd
-        run: |
-          for /f "delims=" %%P in ('py -3.12 -c "import sys; print(sys.executable)"') do set "PYTHON_PATH=%%P"
-          for %%D in ("%PYTHON_PATH%") do set "PYTHON_DIR=%%~dpD"
-          set "PATH=%PYTHON_DIR%;%PYTHON_DIR%Scripts;%PATH%"
-          >> "%GITHUB_PATH%" echo %PYTHON_DIR%
-          >> "%GITHUB_PATH%" echo %PYTHON_DIR%Scripts
-          python --version
-          python -m ensurepip --upgrade
-          python -m pip --version
-
-      - name: Record stage - Install dependencies
-        shell: cmd
-        run: >-
-          > ".local\incidents\pipeline-stage.txt" echo Install dependencies
-
+        run: python scripts/incident_pipeline.py run --stage "Verify runner Python" -- python -m pip --version
       - name: Install dependencies
-        run: python -m pip install -r app/requirements-dev.txt
-
-      - name: Record stage - Run tests
-        shell: cmd
-        run: >-
-          > ".local\incidents\pipeline-stage.txt" echo Run tests
-
+        run: python scripts/incident_pipeline.py run --stage "Install dependencies" -- python -m pip install -r app/requirements-dev.txt
       - name: Run tests
-        run: python -m pytest app/test_app.py
-
-      - name: Record stage - Build Docker image
-        shell: cmd
-        run: >-
-          > ".local\incidents\pipeline-stage.txt" echo Build Docker image
-
+        run: python scripts/incident_pipeline.py run --stage "Run tests" -- python -m pytest app/test_app.py
       - name: Build Docker image
-        run: docker build --pull --tag "devops-platform:${{ github.sha }}" .
+        run: python scripts/incident_pipeline.py run --stage "Build Docker image" -- docker build --pull --tag "devops-platform:${{ github.sha }}" .
 
-      - name: Record stage - Select existing Kind cluster
-        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
-        shell: cmd
-        run: >-
-          > ".local\incidents\pipeline-stage.txt" echo Select existing Kind cluster
+      - name: Intentional failure demonstration
+        if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'intentional-image-load-failure'
+        run: python scripts/incident_pipeline.py run --stage "Intentional failure demonstration" -- python -c "raise SystemExit(1)"
 
+      # Deployment is reachable only after a push to main. Pull requests and
+      # manual validation can never execute these mutating actions.
       - name: Select existing Kind cluster
-        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
-        shell: cmd
-        run: |
-          kubectl config use-context kind-flask-pla > ".local\\incidents\\pipeline-stage.log" 2>&1
-          set "RESULT=%ERRORLEVEL%"
-          type ".local\\incidents\\pipeline-stage.log"
-          exit /b %RESULT%
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python scripts/incident_pipeline.py run --stage "Select existing Kind cluster" -- kubectl config use-context kind-flask-platform
+      - name: Load image
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python scripts/incident_pipeline.py run --stage "Load image" -- kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
+      - name: Apply namespace
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python scripts/incident_pipeline.py run --stage "Apply namespace" -- kubectl apply -f kubernetes/namespace.yaml
+      - name: Apply application
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python scripts/incident_pipeline.py run --stage "Apply application" -- kubectl apply -f kubernetes/deployment.yaml
+      - name: Apply service
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python scripts/incident_pipeline.py run --stage "Apply service" -- kubectl apply -f kubernetes/service.yaml
+      - name: Set deployed image
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python scripts/incident_pipeline.py run --stage "Set deployed image" -- kubectl set image deployment/flask-app flask-app=devops-platform:${{ github.sha }} --namespace flask-app
+      - name: Set deployed version
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python scripts/incident_pipeline.py run --stage "Set deployed version" -- kubectl set env deployment/flask-app APP_VERSION=${{ github.sha }} --namespace flask-app
+      - name: Validate rollout and health
+        if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: python scripts/incident_pipeline.py run --stage "Validate rollout and health" -- python scripts/deployment_check.py --namespace flask-app --timeout-seconds 120
 
-      - name: Record stage - Load normal image
-        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
-        shell: cmd
-        run: >-
-          > ".local\incidents\pipeline-stage.txt" echo Load normal image
-
-      - name: Load normal image into existing Kind cluster
-        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
-        shell: cmd
-        run: kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
-
-      - name: Record stage - Load intentional image failure
-        if: success() && github.event_name == 'workflow_dispatch' && inputs.scenario == 'intentional-image-load-failure'
-        shell: cmd
-        run: >-
-          > ".local\incidents\pipeline-stage.txt" echo Load intentional image failure
-
-      - name: Load intentionally invalid image name
-        if: success() && github.event_name == 'workflow_dispatch' && inputs.scenario == 'intentional-image-load-failure'
-        shell: cmd
-        run: |
-          if not exist ".local\incidents" mkdir ".local\incidents"
-          kind load docker-image "devops-platfo:${{ github.sha }}" --name flask-platform > ".local\incidents\pipeline-image-load.log" 2>&1
-          type ".local\incidents\pipeline-image-load.log"
-          exit /b 1
-
-      - name: Record stage - Apply Kubernetes resources
-        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
-        shell: cmd
-        run: >-
-          > ".local\incidents\pipeline-stage.txt" echo Apply Kubernetes resources
-
-      - name: Apply Flask Kubernetes resources
-        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
-        shell: cmd
-        run: |
-          kubectl apply -f kubernetes/namespace.yaml
-          kubectl apply -f kubernetes/service.yaml
-          kubectl apply -f kubernetes/deployment.yaml
-          kubectl set image deployment/flask-app flask-app="devops-platform:${{ github.sha }}" --namespace flask-app
-          kubectl set env deployment/flask-app APP_VERSION="${{ github.sha }}" --namespace flask-app
-
-      - name: Record stage - Validate rollout and health
-        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
-        shell: cmd
-        run: >-
-          > ".local\incidents\pipeline-stage.txt" echo Validate rollout and health
-
-      - name: Validate rollout and health (RCA and rollback on failure)
-        id: validate
-        if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && inputs.scenario == 'normal'))
-        shell: cmd
-        run: python scripts/deployment_check.py --namespace flask-app --timeout-seconds 120
-
-      - name: Run AI RCA for CD failure
-        if: failure() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
+      - name: Collect failure evidence and GitHub logs
+        if: failure()
         continue-on-error: true
-        shell: cmd
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          if not exist ".local\incidents" mkdir ".local\incidents"
-          set "EVIDENCE=${{ steps.validate.outputs.incident_evidence }}"
-          if not defined EVIDENCE set "EVIDENCE=.local\incidents\github-actions-incident-${{ github.run_id }}.txt"
-          if not exist "%EVIDENCE%" python scripts/ai-rca.py --namespace flask-app --evidence-only --evidence-output "%EVIDENCE%"
-          if exist ".local\incidents\pipeline-stage.txt" (
-            >> "%EVIDENCE%" echo.
-            >> "%EVIDENCE%" echo PIPELINE STAGE MARKER:
-            type ".local\incidents\pipeline-stage.txt" >> "%EVIDENCE%"
-          )
-          if exist ".local\incidents\pipeline-stage.log" (
-            >> "%EVIDENCE%" echo PIPELINE STAGE OUTPUT:
-            type ".local\incidents\pipeline-stage.log" >> "%EVIDENCE%"
-          )
-          if "${{ github.event_name }}"=="workflow_dispatch" if "${{ inputs.scenario }}"=="intentional-image-load-failure" (
-            >> "%EVIDENCE%" echo.
-            >> "%EVIDENCE%" echo PIPELINE FAILURE:
-            >> "%EVIDENCE%" echo Failed stage: image loading.
-            >> "%EVIDENCE%" echo Kubernetes deployment was not attempted because the image-loading command failed.
-            >> "%EVIDENCE%" echo Runtime command output:
-            if exist ".local\incidents\pipeline-image-load.log" type ".local\incidents\pipeline-image-load.log" >> "%EVIDENCE%"
-          )
-          set "REPORT=.local\incidents\incident-report-%GITHUB_RUN_ID%.md"
-          python scripts/ai-rca.py --namespace flask-app --evidence-file "%EVIDENCE%" --report-output "%REPORT%" --timeout-seconds 120
-          type "%REPORT%"
-          type "%REPORT%" >> "%GITHUB_STEP_SUMMARY%"
-          >> "%GITHUB_STEP_SUMMARY%" echo.
-          >> "%GITHUB_STEP_SUMMARY%" echo NEXT ACTION: If the report identifies a code or configuration change, a human must review the evidence and manually start the Ollama remediation workflow.
-          >> "%GITHUB_STEP_SUMMARY%" echo The remediation workflow creates a reviewable patch and applies it only when human approval enables apply_changes.
-
+          New-Item -ItemType Directory -Force .local/incidents | Out-Null
+          $logPath = '.local/incidents/github-actions.log'
+          gh run view $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --log-failed 2>&1 | Tee-Object -FilePath $logPath | Out-Null
+          gh run view $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --json jobs | Set-Content -Path '.local/incidents/github-actions-jobs.json' -Encoding utf8
+          if (Test-Path scripts/incident_pipeline.py) {
+            python scripts/incident_pipeline.py collect --report ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md"
+          } else {
+            @('# Incident evidence', '', 'Checkout or setup failed before repository scripts were available.', '', 'The original GitHub Actions logs and job metadata are attached; no RCA was generated.') | Set-Content -Path ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md" -Encoding utf8
+          }
+          if (Test-Path ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md") { Get-Content ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md" | Add-Content $env:GITHUB_STEP_SUMMARY }
+          'Original pipeline result remains authoritative; evidence collection is non-mutating.' | Add-Content $env:GITHUB_STEP_SUMMARY
       - name: Upload incident evidence
-        if: always() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: incident-evidence-${{ github.run_id }}

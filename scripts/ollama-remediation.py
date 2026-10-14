@@ -96,7 +96,8 @@ INCIDENT EVIDENCE:
         )
         with urllib.request.urlopen(request, timeout=args.timeout_seconds) as response:
             patch = clean_patch(json.load(response).get("response", ""))
-        validate_patch(patch)
+        if patch:
+            validate_patch(patch)
         args.patch_output.parent.mkdir(parents=True, exist_ok=True)
         args.patch_output.write_text(patch + "\n", encoding="utf-8")
         print(f"Reviewable remediation patch written to {args.patch_output}")

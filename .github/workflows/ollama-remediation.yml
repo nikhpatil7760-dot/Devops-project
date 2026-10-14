@@ -1,65 +1,137 @@
-name: Ollama remediation
+name: Ollama remediation (reviewed)
 
 on:
   workflow_dispatch:
     inputs:
       incident_run_id:
-        description: "Failed CI run ID whose incident-evidence artifact should be reviewed"
+        description: Failed run whose incident artifact is being reviewed
         required: true
-        type: string
-      apply_changes:
-        description: "Apply, test, commit, and push Ollama's validated patch"
-        required: true
-        default: false
-        type: boolean
-      target_branch:
-        description: "Branch to update when apply_changes is enabled"
-        required: true
-        default: main
         type: string
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 jobs:
-  propose-or-apply:
+  propose:
     runs-on: self-hosted
-    environment: ollama-remediation
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      source_sha: ${{ steps.identity.outputs.source_sha }}
     steps:
-      - name: Checkout target branch
+      - name: Checkout remediation scripts
         uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.target_branch }}
-          fetch-depth: 0
-
-      - name: Download incident evidence
+      - name: Download incident evidence for identity
         uses: actions/download-artifact@v4
         with:
           name: incident-evidence-${{ inputs.incident_run_id }}
           run-id: ${{ inputs.incident_run_id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ github.token }}
           path: .local/incidents
-
-      - name: Generate and validate Ollama remediation patch
-        shell: cmd
+      - name: Read incident identity
+        id: identity
+        shell: pwsh
+        run: |
+          $incident = Get-Content -Raw .local/incidents/incident.json | ConvertFrom-Json
+          if ([string]::IsNullOrWhiteSpace($incident.commit_sha) -or $incident.commit_sha -eq 'unknown') { throw 'Incident has no immutable source SHA.' }
+          "source_sha=$($incident.commit_sha)" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - name: Checkout exact incident source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.identity.outputs.source_sha }}
+          fetch-depth: 0
+      - name: Download incident evidence for proposal
+        uses: actions/download-artifact@v4
+        with:
+          name: incident-evidence-${{ inputs.incident_run_id }}
+          run-id: ${{ inputs.incident_run_id }}
+          github-token: ${{ github.token }}
+          path: .local/incidents
+      - name: Generate proposal
         run: python scripts/ollama-remediation.py --evidence-dir .local/incidents --patch-output .local/ollama-remediation.patch --timeout-seconds 180
-
+      - name: Bind proposal to exact incident, source, and patch
+        run: python scripts/proposal_binding.py create --incident .local/incidents/incident.json --patch .local/ollama-remediation.patch --output .local/proposal.json
       - name: Upload proposed patch
         uses: actions/upload-artifact@v4
         with:
-          name: ollama-remediation-patch-${{ github.run_id }}
+          name: remediation-proposal-${{ github.run_id }}
           path: .local/ollama-remediation.patch
+          if-no-files-found: error
+      - name: Upload proposal binding
+        uses: actions/upload-artifact@v4
+        with:
+          name: remediation-binding-${{ github.run_id }}
+          path: .local/proposal.json
+          if-no-files-found: error
 
-      - name: Apply, test, and push approved patch
-        if: inputs.apply_changes == true
-        shell: cmd
+  apply-after-human-approval:
+    needs: propose
+    runs-on: self-hosted
+    environment: ollama-remediation-approval
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout exact incident source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.propose.outputs.source_sha }}
+          fetch-depth: 0
+      - name: Download exact incident evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: incident-evidence-${{ inputs.incident_run_id }}
+          run-id: ${{ inputs.incident_run_id }}
+          github-token: ${{ github.token }}
+          path: .local/incidents
+      - name: Download approved proposal
+        uses: actions/download-artifact@v4
+        with:
+          name: remediation-proposal-${{ github.run_id }}
+          path: .local
+      - name: Download proposal binding
+        uses: actions/download-artifact@v4
+        with:
+          name: remediation-binding-${{ github.run_id }}
+          path: .local
+      - name: Revalidate exact proposal after environment approval
+        shell: pwsh
         run: |
-          git apply --check --recount .local/ollama-remediation.patch
+          $head = (git rev-parse HEAD).Trim()
+          python scripts/proposal_binding.py verify --incident .local/incidents/incident.json --patch .local/ollama-remediation.patch --manifest .local/proposal.json --head $head
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --quiet --exit-code
+          if ($LASTEXITCODE -ne 0) { throw 'Working tree was not clean before applying the approved proposal.' }
+          $patch = Get-Content -Raw .local/ollama-remediation.patch
+          if (-not [string]::IsNullOrWhiteSpace($patch)) { git apply --check --recount .local/ollama-remediation.patch; if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE } }
+      - name: Apply only the approved patch and validate
+        shell: pwsh
+        run: |
+          $patch = Get-Content -Raw .local/ollama-remediation.patch
+          if ([string]::IsNullOrWhiteSpace($patch)) { Write-Host 'No repository change was proposed; no code validation is required.'; exit 0 }
           git apply --recount .local/ollama-remediation.patch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m pytest app/test_app.py
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add --all -- . ":(exclude).local/**"
-          git commit -m "Apply Ollama remediation for incident ${{ inputs.incident_run_id }}"
-          git push origin HEAD:${{ inputs.target_branch }}
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/proposal_binding.py verify-worktree --patch .local/ollama-remediation.patch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --check
+      - name: Create dedicated branch and pull request
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $branch = "remediation/${{ inputs.incident_run_id }}-$env:GITHUB_RUN_ID"
+          git switch -c $branch
+          git add --all -- . ':(exclude).local/**'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -eq 0) { Write-Host 'No repository change was proposed.'; exit 0 }
+          git commit -m "Propose remediation for incident ${{ inputs.incident_run_id }}"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git push --set-upstream origin $branch
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          gh auth status --hostname github.com
+          gh pr create --base main --head $branch --title "Remediation for incident ${{ inputs.incident_run_id }}" --body "Human-approved proposal; review and merge through normal repository protections."
