@@ -1,4 +1,4 @@
-name: Flask CI
+﻿name: Flask CI
 
 on:
   push:
@@ -41,7 +41,7 @@ jobs:
       # manual validation can never execute these mutating actions.
       - name: Select existing Kind cluster
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: py -3.12 scripts/incident_pipeline.py run --stage "Select existing Kind cluster" -- kubectl config use-context kind-flask-platform
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Select existing Kind cluster" -- kubectl config use-context kind-flask-plat
       - name: Load image
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: py -3.12 scripts/incident_pipeline.py run --stage "Load image" -- kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
