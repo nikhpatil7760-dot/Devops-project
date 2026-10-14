@@ -23,44 +23,44 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       - name: Verify runner Python
-        run: python scripts/incident_pipeline.py run --stage "Verify runner Python" -- python -m pip --version
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Verify runner Python" -- py -3.12 -m pip --version
       - name: Install dependencies
-        run: python scripts/incident_pipeline.py run --stage "Install dependencies" -- python -m pip install -r app/requirements-dev.txt
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Install dependencies" -- py -3.12 -m pip install -r app/requirements-dev.txt
       - name: Run tests
-        run: python scripts/incident_pipeline.py run --stage "Run tests" -- python -m pytest app/test_app.py
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Run tests" -- py -3.12 -m pytest app/test_app.py
       - name: Build Docker image
-        run: python scripts/incident_pipeline.py run --stage "Build Docker image" -- docker build --pull --tag "devops-platform:${{ github.sha }}" .
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Build Docker image" -- docker build --pull --tag "devops-platform:${{ github.sha }}" .
 
       - name: Intentional failure demonstration
         if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'intentional-image-load-failure'
-        run: python scripts/incident_pipeline.py run --stage "Intentional failure demonstration" -- python -c "raise SystemExit(1)"
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Intentional failure demonstration" -- py -3.12 -c "raise SystemExit(1)"
 
       # Deployment is reachable only after a push to main. Pull requests and
       # manual validation can never execute these mutating actions.
       - name: Select existing Kind cluster
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: python scripts/incident_pipeline.py run --stage "Select existing Kind cluster" -- kubectl config use-context kind-flask-platform
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Select existing Kind cluster" -- kubectl config use-context kind-flask-platform
       - name: Load image
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: python scripts/incident_pipeline.py run --stage "Load image" -- kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Load image" -- kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
       - name: Apply namespace
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: python scripts/incident_pipeline.py run --stage "Apply namespace" -- kubectl apply -f kubernetes/namespace.yaml
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Apply namespace" -- kubectl apply -f kubernetes/namespace.yaml
       - name: Apply application
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: python scripts/incident_pipeline.py run --stage "Apply application" -- kubectl apply -f kubernetes/deployment.yaml
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Apply application" -- kubectl apply -f kubernetes/deployment.yaml
       - name: Apply service
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: python scripts/incident_pipeline.py run --stage "Apply service" -- kubectl apply -f kubernetes/service.yaml
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Apply service" -- kubectl apply -f kubernetes/service.yaml
       - name: Set deployed image
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: python scripts/incident_pipeline.py run --stage "Set deployed image" -- kubectl set image deployment/flask-app flask-app=devops-platform:${{ github.sha }} --namespace flask-app
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Set deployed image" -- kubectl set image deployment/flask-app flask-app=devops-platform:${{ github.sha }} --namespace flask-app
       - name: Set deployed version
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: python scripts/incident_pipeline.py run --stage "Set deployed version" -- kubectl set env deployment/flask-app APP_VERSION=${{ github.sha }} --namespace flask-app
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Set deployed version" -- kubectl set env deployment/flask-app APP_VERSION=${{ github.sha }} --namespace flask-app
       - name: Validate rollout and health
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: python scripts/incident_pipeline.py run --stage "Validate rollout and health" -- python scripts/deployment_check.py --namespace flask-app --timeout-seconds 120
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Validate rollout and health" -- py -3.12 scripts/deployment_check.py --namespace flask-app --timeout-seconds 120
 
       - name: Collect failure evidence and GitHub logs
         if: failure()
@@ -74,7 +74,7 @@ jobs:
           gh run view $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --log-failed 2>&1 | Tee-Object -FilePath $logPath | Out-Null
           gh run view $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --json jobs | Set-Content -Path '.local/incidents/github-actions-jobs.json' -Encoding utf8
           if (Test-Path scripts/incident_pipeline.py) {
-            python scripts/incident_pipeline.py collect --report ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md"
+            py -3.12 scripts/incident_pipeline.py collect --report ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md"
           } else {
             @('# Incident evidence', '', 'Checkout or setup failed before repository scripts were available.', '', 'The original GitHub Actions logs and job metadata are attached; no RCA was generated.') | Set-Content -Path ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md" -Encoding utf8
           }

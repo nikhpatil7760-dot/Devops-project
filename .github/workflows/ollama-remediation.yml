@@ -50,9 +50,9 @@ jobs:
           github-token: ${{ github.token }}
           path: .local/incidents
       - name: Generate proposal
-        run: python scripts/ollama-remediation.py --evidence-dir .local/incidents --patch-output .local/ollama-remediation.patch --timeout-seconds 180
+        run: py -3.12 scripts/ollama-remediation.py --evidence-dir .local/incidents --patch-output .local/ollama-remediation.patch --timeout-seconds 180
       - name: Bind proposal to exact incident, source, and patch
-        run: python scripts/proposal_binding.py create --incident .local/incidents/incident.json --patch .local/ollama-remediation.patch --output .local/proposal.json
+        run: py -3.12 scripts/proposal_binding.py create --incident .local/incidents/incident.json --patch .local/ollama-remediation.patch --output .local/proposal.json
       - name: Upload proposed patch
         uses: actions/upload-artifact@v4
         with:
@@ -101,7 +101,7 @@ jobs:
         shell: pwsh
         run: |
           $head = (git rev-parse HEAD).Trim()
-          python scripts/proposal_binding.py verify --incident .local/incidents/incident.json --patch .local/ollama-remediation.patch --manifest .local/proposal.json --head $head
+          py -3.12 scripts/proposal_binding.py verify --incident .local/incidents/incident.json --patch .local/ollama-remediation.patch --manifest .local/proposal.json --head $head
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff --quiet --exit-code
           if ($LASTEXITCODE -ne 0) { throw 'Working tree was not clean before applying the approved proposal.' }
@@ -114,9 +114,9 @@ jobs:
           if ([string]::IsNullOrWhiteSpace($patch)) { Write-Host 'No repository change was proposed; no code validation is required.'; exit 0 }
           git apply --recount .local/ollama-remediation.patch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python -m pytest app/test_app.py
+          py -3.12 -m pytest app/test_app.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/proposal_binding.py verify-worktree --patch .local/ollama-remediation.patch
+          py -3.12 scripts/proposal_binding.py verify-worktree --patch .local/ollama-remediation.patch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git diff --check
       - name: Create dedicated branch and pull request

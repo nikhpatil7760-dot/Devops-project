@@ -6,7 +6,7 @@ The investigator selects a small set of repository files from evidence tokens an
 
 ## Required GitHub configuration
 
-1. The CI workflow needs `contents: read` and `actions: write` only if a later implementation uploads artifacts with a separate token; the current upload action uses the job token. The self-hosted runner needs Python, pytest, Docker, and any tools used by the pipeline stages.
+1. The CI workflow needs `contents: read` and `actions: write` only if a later implementation uploads artifacts with a separate token; the current upload action uses the job token. The self-hosted runner needs Python, pytest, Docker, and any tools used by the pipeline stages. On the Windows runner, the workflows invoke Python through `py -3.12` because the `python` App Execution Alias may be unavailable; the Python launcher must be installed and available on `PATH`.
 2. Create a protected environment named `ollama-remediation-approval` and configure required reviewers. Environment approval is the only approval signal; a workflow input, model response, artifact, or boolean is never treated as approval.
 3. The remediation workflow has `actions: read` and `contents: write` so it can download the exact incident artifact and publish a branch/PR. Repository branch protections must require review and prevent direct pushes to `main`.
 4. Set `OLLAMA_URL`, `OLLAMA_MODEL`, and optionally `OLLAMA_TIMEOUT_SECONDS` on the runner or as environment configuration. No Ollama secret is required for a local Ollama endpoint; use the runner's secret mechanism for a remote endpoint.
