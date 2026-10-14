@@ -84,7 +84,7 @@ jobs:
         if: success() && ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch')
         shell: cmd
         run: |
-          kubectl config use-context kind-flask-platform > ".local\\incidents\\pipeline-stage.log" 2>&1
+          kubectl config use-context kind-flask-pla > ".local\\incidents\\pipeline-stage.log" 2>&1
           set "RESULT=%ERRORLEVEL%"
           type ".local\\incidents\\pipeline-stage.log"
           exit /b %RESULT%
