@@ -7,6 +7,11 @@ on:
         description: Failed run whose incident artifact is being reviewed
         required: true
         type: string
+      apply_changes:
+        description: Opt in to the protected approval job; this input is not human approval
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   actions: read
@@ -67,6 +72,7 @@ jobs:
           if-no-files-found: error
 
   apply-after-human-approval:
+    if: inputs.apply_changes == true
     needs: propose
     runs-on: self-hosted
     environment: ollama-remediation-approval
@@ -133,5 +139,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           git push --set-upstream origin $branch
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          gh auth status --hostname github.com
-          gh pr create --base main --head $branch --title "Remediation for incident ${{ inputs.incident_run_id }}" --body "Human-approved proposal; review and merge through normal repository protections."
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2022-11-28" }
+          $body = @{ title = "Remediation for incident ${{ inputs.incident_run_id }}"; head = $branch; base = 'main'; body = 'Human-approved proposal; review and merge through normal repository protections.' } | ConvertTo-Json
+          Invoke-RestMethod -Method Post -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/pulls" -Headers $headers -ContentType 'application/json' -Body $body | Out-Null

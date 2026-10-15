@@ -72,9 +72,13 @@ def test_workflow_has_approval_binding_and_windows_safe_pr_creation():
     assert "pull-requests: write" in workflow
     assert "GH_TOKEN: ${{ github.token }}" in workflow
     assert "shell: bash" not in workflow
-    assert "apply_changes" not in workflow
+    assert "apply_changes" in workflow
+    assert "default: false" in workflow
+    assert "if: inputs.apply_changes == true" in workflow
     assert "--patch .local/ollama-remediation.patch" in workflow
     assert "verify-worktree --patch .local/ollama-remediation.patch" in workflow
+    assert "Invoke-RestMethod" in workflow
+    assert "gh pr create" not in workflow
 
 
 def test_workflow_does_not_deploy_during_pull_request_validation():

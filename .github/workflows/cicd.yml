@@ -1,4 +1,4 @@
-﻿name: Flask CI
+name: Flask CI
 
 on:
   push:
@@ -14,6 +14,7 @@ on:
         options: [normal, intentional-image-load-failure]
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -28,6 +29,10 @@ jobs:
         run: py -3.12 scripts/incident_pipeline.py run --stage "Verify runner Python" -- py -3.12 -m pip --version
       - name: Install dependencies
         run: py -3.12 scripts/incident_pipeline.py run --stage "Install dependencies" -- py -3.12 -m pip install -r app/requirements-dev.txt
+      - name: Validate Python sources
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Validate Python sources" -- py -3.12 -m compileall -q app scripts
+      - name: Validate installed dependencies
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Validate installed dependencies" -- py -3.12 -m pip check
       - name: Run tests
         run: py -3.12 scripts/incident_pipeline.py run --stage "Run tests" -- py -3.12 -m pytest app/test_app.py
       - name: Build Docker image
@@ -35,13 +40,13 @@ jobs:
 
       - name: Intentional failure demonstration
         if: github.event_name == 'workflow_dispatch' && inputs.scenario == 'intentional-image-load-failure'
-        run: py -3.12 scripts/incident_pipeline.py run --stage "Intentional failure demonstration" -- py -3.12 -c "raise SystemExit(1)"
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Intentional Kind context failure" -- kubectl config use-context kind-flask-plat
 
       # Deployment is reachable only after a push to main. Pull requests and
       # manual validation can never execute these mutating actions.
       - name: Select existing Kind cluster
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: py -3.12 scripts/incident_pipeline.py run --stage "Select existing Kind cluster" -- kubectl config use-context kind-flask-plat
+        run: py -3.12 scripts/incident_pipeline.py run --stage "Select existing Kind cluster" -- kubectl config use-context kind-flask-platform
       - name: Load image
         if: success() && github.event_name == 'push' && github.ref == 'refs/heads/main'
         run: py -3.12 scripts/incident_pipeline.py run --stage "Load image" -- kind load docker-image "devops-platform:${{ github.sha }}" --name flask-platform
@@ -72,13 +77,41 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           New-Item -ItemType Directory -Force .local/incidents | Out-Null
-          $logPath = '.local/incidents/github-actions.log'
-          gh run view $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --log-failed 2>&1 | Tee-Object -FilePath $logPath | Out-Null
-          gh run view $env:GITHUB_RUN_ID --repo $env:GITHUB_REPOSITORY --json jobs | Set-Content -Path '.local/incidents/github-actions-jobs.json' -Encoding utf8
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = "application/vnd.github+json"; "X-GitHub-Api-Version" = "2022-11-28" }
+          $jobs = @{ jobs = @() }
+          try {
+            $jobs = Invoke-RestMethod -Method Get -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/jobs?per_page=100" -Headers $headers
+            $jobs | ConvertTo-Json -Depth 10 | Set-Content -Path '.local/incidents/github-actions-jobs.json' -Encoding utf8
+            foreach ($job in @($jobs.jobs)) {
+              try {
+                $zip = ".local/incidents/job-$($job.id).zip"
+                Invoke-WebRequest -Uri "https://api.github.com/repos/$env:GITHUB_REPOSITORY/actions/jobs/$($job.id)/logs" -Headers $headers -OutFile $zip
+                Expand-Archive -LiteralPath $zip -DestinationPath ".local/incidents/job-$($job.id)" -Force
+                Get-ChildItem -Path ".local/incidents/job-$($job.id)" -Recurse -File | ForEach-Object { Get-Content -Raw $_.FullName } | Add-Content -Path '.local/incidents/github-actions.log'
+                Remove-Item -LiteralPath $zip -Force
+              } catch { "GitHub log download failed for job $($job.id): $($_.Exception.Message)" | Add-Content '.local/incidents/github-actions-collection-errors.txt' }
+            }
+          } catch { "GitHub Actions metadata collection failed: $($_.Exception.Message)" | Set-Content '.local/incidents/github-actions-collection-errors.txt' -Encoding utf8 }
+          $failedSteps = @($jobs.jobs | ForEach-Object { $jobName=$_.name; $_.steps | Where-Object conclusion -eq 'failure' | ForEach-Object { "$jobName / $($_.name)" } })
+          $failedText = if ($failedSteps.Count) { $failedSteps -join '; ' } else { 'No failed step metadata was available.' }
           if (Test-Path scripts/incident_pipeline.py) {
             py -3.12 scripts/incident_pipeline.py collect --report ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md"
-          } else {
-            @('# Incident evidence', '', 'Checkout or setup failed before repository scripts were available.', '', 'The original GitHub Actions logs and job metadata are attached; no RCA was generated.') | Set-Content -Path ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md" -Encoding utf8
+          }
+          if (-not (Test-Path ".local/incidents/incident.json")) {
+            $fallback = @{
+              incident_id = "github-$env:GITHUB_RUN_ID"
+              commit_sha = $env:GITHUB_SHA
+              workflow_run_url = "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID"
+              run_id = $env:GITHUB_RUN_ID
+              failure_stage = $failedText
+              original_exit_status = $null
+              evidence_status = 'incomplete; incident recorder unavailable'
+              evidence = "Actual GitHub Actions logs and failed-step metadata were collected. Failed steps: $failedText. Ollama RCA was not claimed because repository incident scripts were unavailable."
+            }
+            $fallback | ConvertTo-Json -Depth 8 | Set-Content -Path '.local/incidents/incident.json' -Encoding utf8
+          }
+          if (-not (Test-Path ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md")) {
+            @('# Incident evidence', '', "Failed step metadata: $failedText", 'The original GitHub Actions logs are attached; no RCA was generated because investigation was unavailable.') | Set-Content -Path ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md" -Encoding utf8
           }
           if (Test-Path ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md") { Get-Content ".local/incidents/incident-report-$env:GITHUB_RUN_ID.md" | Add-Content $env:GITHUB_STEP_SUMMARY }
           'Original pipeline result remains authoritative; evidence collection is non-mutating.' | Add-Content $env:GITHUB_STEP_SUMMARY

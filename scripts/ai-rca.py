@@ -8,6 +8,9 @@ import sys
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from rca_context import redact  # noqa: E402
+
 
 def image_identity(image):
     """Normalize Kubernetes' implicit Docker Hub library prefix for comparison."""
@@ -176,6 +179,26 @@ def collect_evidence(namespace, selector):
                 ]
             )
         )
+        unhealthy = status.get("phase") != "Running" or any(
+            not container.get("ready", False) or container.get("restartCount", 0)
+            for container in containers
+        )
+        if unhealthy:
+            describe = kubectl("describe", "pod", metadata.get("name", ""), "-n", namespace)
+            sections.append("DESCRIBE:\n" + compact_text(describe, 2500))
+        if any(container.get("restartCount", 0) for container in containers):
+            sections.append(
+                "PREVIOUS CONTAINER LOGS:\n"
+                + kubectl(
+                    "logs",
+                    metadata.get("name", ""),
+                    "-n",
+                    namespace,
+                    "--all-containers=true",
+                    "--previous",
+                    "--tail=20",
+                )
+            )
     issues.extend(image_drift_issues(configured_images, pod_images))
     sections.extend(
         [
@@ -190,7 +213,7 @@ def collect_evidence(namespace, selector):
             1,
             f"STATUS DETERMINATION: HEALTHY\nAll {desired} desired replicas are updated, ready, and available; observed pods are Running and ready. No active incident or rollback condition is present.",
         )
-    return "\n\n".join(sections)
+    return redact("\n\n".join(sections))
 
 
 def fallback_report(evidence, reason):
@@ -274,7 +297,7 @@ def fallback_report(evidence, reason):
 
 def report_without_rca(evidence, reason, report_output=None):
     """Report collected evidence without inventing an RCA."""
-    report = fallback_report(evidence, reason)
+    report = redact(fallback_report(evidence, reason))
     print(reason, file=sys.stderr)
     if report_output:
         report_path = Path(report_output)
@@ -351,7 +374,7 @@ def collect_repository_context():
             sections.append(f"--- {relative_file} ---\nUnavailable: {error}")
             continue
         sections.append(f"--- {relative_file} ---\n{compact_text(content, 1800)}")
-    return compact_text("\n\n".join(sections), 8000)
+    return redact(compact_text("\n\n".join(sections), 8000))
 
 def main():
     parser = argparse.ArgumentParser(
@@ -367,7 +390,7 @@ def main():
     args = parser.parse_args()
 
     try:
-        evidence = (
+        evidence = redact(
             Path(args.evidence_file).read_text(encoding="utf-8")
             if args.evidence_file
             else collect_evidence(args.namespace, args.selector)
@@ -429,7 +452,7 @@ REPOSITORY CONTEXT:
             )
             return 1
         analysis = enforce_recovery_recommendation(analysis, evidence)
-        report = f"=== Ollama RCA ({model}) ===\n{analysis}"
+        report = redact(f"=== Ollama RCA ({model}) ===\n{analysis}")
         if args.report_output:
             report_path = Path(args.report_output)
             report_path.parent.mkdir(parents=True, exist_ok=True)
